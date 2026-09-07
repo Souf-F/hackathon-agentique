@@ -61,6 +61,61 @@ def document_report(document_id: str) -> DocumentReport | None:
     )
 
 
+def security_summary(corpus_id: str) -> dict | None:
+    """Agrégats méta d'un corpus, pour les questions « système » du frontend.
+
+    Le frontend reçoit des questions qui ne portent pas sur le contenu des
+    documents (« as-tu détecté des injections ? », « combien de passages
+    sont en quarantaine ? »). Lancer le retrieval sur ces questions ne
+    remonte rien : les documents ne parlent pas du système qui les analyse.
+    Sans cet endpoint, le frontend tombait sur « Aucun passage admissible »
+    à chaque question méta.
+
+    Surface strictement contrôlée : compteurs et catégories uniquement.
+    Aucun extrait, aucun texte de chunk, aucun nom de fichier, aucun
+    identifiant utilisateur. C'est un agrégat, pas une fuite.
+    """
+    with connect() as conn:
+        corpus = conn.execute(
+            "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,),
+        ).fetchone()
+        if corpus is None:
+            return None
+
+        doc_total = conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE corpus_id = ?",
+            (corpus_id,),
+        ).fetchone()["n"]
+        doc_suspicious = conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE corpus_id = ? AND status = 'suspicious'",
+            (corpus_id,),
+        ).fetchone()["n"]
+
+        quarantined = conn.execute(
+            "SELECT COUNT(*) AS n FROM chunks WHERE corpus_id = ? AND quarantined = 1",
+            (corpus_id,),
+        ).fetchone()["n"]
+
+        events_total = conn.execute(
+            "SELECT COUNT(*) AS n FROM security_events WHERE corpus_id = ?",
+            (corpus_id,),
+        ).fetchone()["n"]
+
+        top_categories = conn.execute(
+            "SELECT category, COUNT(*) AS n FROM security_events"
+            " WHERE corpus_id = ? GROUP BY category ORDER BY n DESC LIMIT 5",
+            (corpus_id,),
+        ).fetchall()
+
+    return {
+        "documents": doc_total,
+        "documents_suspicious": doc_suspicious,
+        "chunks_quarantined": quarantined,
+        "events": events_total,
+        "categories": [{"category": r["category"], "count": r["n"]} for r in top_categories],
+    }
+
+
 def document_preview(document_id: str) -> list[dict] | None:
     """Corps intégral d'un document, pour l'aperçu humain du workspace.
 

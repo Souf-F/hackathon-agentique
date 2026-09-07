@@ -16,7 +16,9 @@ load_dotenv()
 from .answer import LLMUnavailable, answer_query  # noqa: E402
 from .db import connect, init_db          # noqa: E402
 from .pipeline import ingest_corpus       # noqa: E402
-from .display import document_preview, document_report, resolve_source_names  # noqa: E402
+from .display import (  # noqa: E402
+    document_preview, document_report, resolve_source_names, security_summary,
+)
 from .tools import inspect_document, search_evidence  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -142,6 +144,26 @@ def report(corpus_id: str) -> dict:
             if (rep := document_report(d["document_id"])) is not None
         ],
     }
+
+
+@app.get("/api/corpus/{corpus_id}/security/summary")
+def corpus_security_summary(corpus_id: str) -> dict:
+    """Agrégats méta d'un corpus, pour les questions « système » du frontend.
+
+    Le frontend reçoit des questions qui ne portent pas sur le contenu des
+    documents (« as-tu détecté des injections ? »). Lancer le retrieval sur
+    ces questions ne remonte rien. Sans cet endpoint, le frontend tombait
+    sur « Aucun passage admissible » à chaque question méta.
+
+    Surface strictement contrôlée : compteurs et catégories, plan
+    d'affichage uniquement. Aucun extrait, aucun texte de chunk, aucun nom
+    de fichier, aucun identifiant d'auteur.
+    """
+    _require_corpus(corpus_id)
+    summary = security_summary(corpus_id)
+    if summary is None:
+        raise HTTPException(404, f"corpus inconnu : {corpus_id}")
+    return summary
 
 
 @app.get("/api/document/{document_id}")
