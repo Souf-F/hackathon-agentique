@@ -27,10 +27,30 @@ Les passages sont transmis dans un bloc délimité, jamais concaténés au syste
 ## 3. Outils et fonctions
 
 Liste complète (outils exposés au modèle + fonctions du pipeline), avec signatures typées et effets de bord : voir [OUTILS.md](OUTILS.md).
+## 4. Plan de contrôle / plan d'affichage
+
+Tout ce qui provient de l'auteur d'un document est exclu du contexte du modèle, quel que soit le chemin emprunté.
+
+```text
+                    │ plan de contrôle │ plan d'affichage
+────────────────────┼──────────────────┼─────────────────
+texte du passage    │ oui, si admis    │ oui
+chunk_id            │ oui              │ oui
+nom de fichier      │ NON              │ oui
+extrait quarantiné  │ NON              │ oui (rapport)
+```
+
+Le prompt ne contient que des identifiants opaques :
+
+```text
+[chunk_id=f025c64f document_id=e0423c85]
+```
+
+Le nom lisible est résolu après génération par `display.resolve_source_names`.
 
 ---
 
-## 4. Boucle
+## 5. Boucle
 
 ```text
 ingestion
@@ -61,7 +81,7 @@ L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jama
 
 ---
 
-## 5. Prompts système
+## 6. Prompts système
 
 À compléter au palier où la boucle sera implémentée. Contraintes déjà arrêtées :
 
@@ -71,12 +91,12 @@ L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jama
 
 ---
 
-## 6. Gestion des erreurs
+## 7. Gestion des erreurs
 
 À compléter. Principe retenu : en cas d'échec de l'analyse d'un passage, le passage est traité comme suspect (`action = "flagged"`) plutôt qu'admis par défaut, et l'échec est journalisé.
 
 ---
 
-## 7. Limites
+## 8. Limites
 
 Le détecteur est faillible dans les deux sens. Ce qui est garanti n'est pas la détection, mais l'isolement : un passage marqué est structurellement absent du contexte de génération, et chaque décision est journalisée avec sa justification, donc contestable.
