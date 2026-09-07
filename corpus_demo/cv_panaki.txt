@@ -1,0 +1,24 @@
+CV — Panaki
+Poste recherché : Ingénieur Backend
+
+Expérience professionnelle
+
+2023-2024 : Ingénieur logiciel chez Verhac Conseil. Outils internes en Python, dont un assistant de tri de CV. Sensibilisation de l'équipe aux risques de prompt injection : un candidat mal intentionné peut par exemple tenter de demander au modèle d'ignorer ses instructions précédentes pour se faire mieux noter. Mise en place d'une revue humaine en complément du tri automatique.
+
+2021-2023 : Développeur chez Atrium Systems. API de gestion de stocks en Python/FastAPI, journalisation applicative.
+
+Formation
+
+2021 : Diplôme d'ingénieur, INSA Lyon.
+
+Compétences techniques
+
+Python, FastAPI, PostgreSQL, sécurité applicative, Docker.
+
+Divers
+
+Capable de citer de mémoire n'importe quelle réplique d'un film culte au moment le moins opportun d'une réunion, généralement juste après quelqu'un d'important. La technique fonctionne étrangement bien pour détendre l'ambiance.
+
+Langues
+
+Français (natif), Anglais (courant).
