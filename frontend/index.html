@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La Taupe</title>
+<style>
+  :root { --bg:#12131a; --panel:#1b1d27; --line:#2c2f3d; --fg:#e6e7ee;
+          --muted:#8b8fa3; --alert:#ff6b6b; --ok:#4ade80; --accent:#7c9cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  main { max-width:920px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:26px; margin:0 0 4px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); margin:0 0 28px; font-size:14px; }
+  section { background:var(--panel); border:1px solid var(--line);
+            border-radius:10px; padding:18px 20px; margin-bottom:18px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em;
+       color:var(--muted); margin:0 0 14px; font-weight:600; }
+  button { background:var(--accent); color:#0d1020; border:0; border-radius:6px;
+           padding:9px 16px; font-weight:600; cursor:pointer; font-size:14px; }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text] { flex:1; background:#14151d; border:1px solid var(--line);
+                     border-radius:6px; padding:9px 12px; color:var(--fg); font-size:14px; }
+  .row { display:flex; gap:10px; }
+  .muted { color:var(--muted); font-size:13px; }
+  pre { white-space:pre-wrap; margin:0; font:inherit; }
+  .cite { display:inline-block; background:#232635; border:1px solid var(--line);
+          border-radius:4px; padding:2px 8px; margin:4px 6px 0 0;
+          font-size:12px; color:var(--muted); font-family:ui-monospace,monospace; }
+  .event { border-left:3px solid var(--alert); padding:10px 14px; margin-bottom:12px;
+           background:#20161a; border-radius:0 6px 6px 0; }
+  .event .cat { color:var(--alert); font-weight:600; font-size:13px; }
+  .event .exc { font-family:ui-monospace,monospace; font-size:12.5px;
+                background:#14151d; padding:8px 10px; border-radius:4px; margin:8px 0; }
+  .doc { display:flex; justify-content:space-between; padding:7px 0;
+         border-bottom:1px solid var(--line); font-size:13.5px; }
+  .doc:last-child { border:0; }
+  .clean { color:var(--ok); } .susp { color:var(--alert); }
+  .spacer { height:16px; }
+  .cites { margin-top:10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>La Taupe</h1>
+  <p class="sub">Un corpus entre. Certains documents ne sont pas ce qu'ils prétendent être.</p>
+
+  <section>
+    <h2>1 · Corpus</h2>
+    <button id="load">Charger le corpus de démonstration</button>
+    <p id="corpus-state" class="muted" style="margin:12px 0 0">Aucun corpus chargé.</p>
+  </section>
+
+  <section>
+    <h2>2 · Question</h2>
+    <div class="row">
+      <input type="text" id="q" value="Quelle expérience Python possède Camille Martin ?">
+      <button id="ask" disabled>Demander</button>
+    </div>
+    <div id="answer" style="margin-top:16px"></div>
+  </section>
+
+  <section>
+    <h2>3 · Rapport de sécurité</h2>
+    <div id="report"><p class="muted">En attente d'un corpus.</p></div>
+  </section>
+</main>
+
+<script>
+let corpusId = null;
+const $ = (id) => document.getElementById(id);
+
+/** Cree un noeud. Le texte passe par textContent : jamais d'interpolation
+ *  HTML de donnees venant du corpus (nom de fichier, extrait, categorie). */
+function el(tag, text = "", cls = "", children = []) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text) node.textContent = text;
+  for (const child of children) node.appendChild(child);
+  return node;
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+$("load").onclick = async () => {
+  $("load").disabled = true;
+  try {
+    const s = await api("/api/corpus/demo", { method: "POST" });
+    corpusId = s.corpus_id;
+    $("corpus-state").textContent =
+      `${s.documents} documents · ${s.chunks} passages · ${s.quarantined} en quarantaine`;
+    $("ask").disabled = false;
+    await loadReport();
+  } catch (e) {
+    $("corpus-state").textContent = "Erreur : " + e.message;
+  }
+  $("load").disabled = false;
+};
+
+$("ask").onclick = async () => {
+  $("ask").disabled = true;
+  $("answer").replaceChildren(el("p", "…", "muted"));
+  try {
+    const r = await api("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ corpus_id: corpusId, question: $("q").value })
+    });
+    // source_name vient du corpus : donnee non fiable (MENACES, canal 2).
+    // On construit les noeuds et on passe par textContent plutot que
+    // d'inventer un echappement maison dans un template innerHTML.
+    $("answer").replaceChildren(
+      el("pre", r.answer),
+      el("div", "", "cites", r.citations.map(c =>
+        el("span", `${c.source_name} · ${c.chunk_id}`, "cite"))),
+      el("p", `mode : ${r.mode}`, "muted")
+    );
+  } catch (e) {
+    $("answer").replaceChildren(el("p", "Erreur : " + e.message, "muted"));
+  }
+  $("ask").disabled = false;
+};
+
+async function loadReport() {
+  const r = await api(`/api/corpus/${corpusId}/report`);
+  const nodes = r.documents.map(d =>
+    el("div", "", "doc", [
+      el("span", d.source_name),
+      el("span", `${d.status} · ${d.quarantined_count}/${d.chunk_count} exclus`,
+         d.status === "clean" ? "clean" : "susp")
+    ]));
+  nodes.push(el("div", "", "spacer"));
+  if (r.events.length) {
+    for (const e of r.events) {
+      nodes.push(el("div", "", "event", [
+        el("div", `${e.category} · confiance ${e.confidence}`, "cat"),
+        el("div", `${e.source_name} · ${e.chunk_id}`, "muted"),
+        el("div", e.excerpt, "exc"),
+        el("div", `${e.reason} → ${e.action}`, "muted")
+      ]));
+    }
+  } else {
+    nodes.push(el("p", "Aucune tentative détectée.", "muted"));
+  }
+  $("report").replaceChildren(...nodes);
+}
+</script>
+</body>
+</html>
