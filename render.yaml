@@ -5,9 +5,7 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ANTHROPIC_MODEL
-        value: claude-sonnet-5
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: RETRIEVAL_TOP_K
-        value: "5"
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5

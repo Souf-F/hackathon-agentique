@@ -27,6 +27,9 @@ Les passages sont transmis dans un bloc délimité, jamais concaténés au syste
 ## 3. Outils et fonctions
 
 Liste complète (outils exposés au modèle + fonctions du pipeline), avec signatures typées et effets de bord : voir [OUTILS.md](OUTILS.md).
+
+---
+
 ## 4. Plan de contrôle / plan d'affichage
 
 Tout ce qui provient de l'auteur d'un document est exclu du contexte du modèle, quel que soit le chemin emprunté.
