@@ -25,7 +25,7 @@ La protection qui compte est dans le code et le schéma de données, pas dans le
 
 ```bash
 git clone https://github.com/Souf-F/hackathon-agentique.git && cd hackathon-agentique
-cp .env.example .env      # renseigner ANTHROPIC_API_KEY
+cp .env.example .env      # renseigner ANTHROPIC_API_KEY (optionnel : sans clé, mode extractif)
 
 python3 -m venv backend/.venv && source backend/.venv/bin/activate
 pip install -r backend/requirements.txt
