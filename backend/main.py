@@ -1,6 +1,8 @@
 """API de La Taupe."""
 
 import uuid
+import re
+import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +18,7 @@ load_dotenv()
 from .answer import LLMUnavailable, answer_query  # noqa: E402
 from .db import connect, init_db          # noqa: E402
 from .pipeline import ingest_corpus       # noqa: E402
+from .models import Answer  # noqa: E402
 from .display import (  # noqa: E402
     document_preview, document_report, resolve_source_names, security_summary,
 )
@@ -46,6 +49,59 @@ class AskIn(BaseModel):
     corpus_id: str
     question: str
     k: int = 5
+
+
+def _normalize_question(question: str) -> str:
+    normalized = unicodedata.normalize("NFD", question.lower())
+    return "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+
+
+def _is_security_question(question: str) -> bool:
+    """Détermine si une question porte sur l'état de sécurité du corpus.
+
+    Cette décision ne lit que la question utilisateur, jamais les documents.
+    Une réponse de sécurité est construite depuis des agrégats locaux et ne
+    peut donc pas réintroduire un passage quarantiné dans un prompt.
+    """
+    text = _normalize_question(question)
+    security_terms = (
+        "quarantain", "injection", "detect", "isole", "suspect",
+        "menace", "piege", "exfilt", "securite", "alerte",
+    )
+    if any(term in text for term in security_terms):
+        return True
+
+    discovery_terms = ("trouv", "detect", "repere", "identifi", "constat")
+    issue_terms = ("probleme", "anomal", "risque", "souci")
+    return any(term in text for term in discovery_terms) and any(
+        term in text for term in issue_terms
+    )
+
+
+def _security_answer(summary: dict) -> Answer:
+    """Formate une réponse de sécurité sans appel LLM ni donnée auteur."""
+    quarantined = summary["chunks_quarantined"]
+    suspicious = summary["documents_suspicious"]
+    if not quarantined:
+        text = (
+            "Aucune tentative de manipulation n'a été détectée : "
+            f"les {summary['documents']} documents sont admissibles."
+        )
+    else:
+        categories = ", ".join(
+            f"{item['category']} ({item['count']})"
+            for item in summary["categories"]
+        )
+        text = (
+            f"J'ai détecté {quarantined} passage"
+            f"{'s' if quarantined > 1 else ''} en quarantaine dans "
+            f"{suspicious} document{'s' if suspicious > 1 else ''} suspect"
+            f"{'s' if suspicious > 1 else ''}."
+        )
+        if categories:
+            text += f" Catégorie{'s' if ',' in categories else ''} : {categories}."
+
+    return Answer(text=text, citations=[], mode="security_summary")
 
 
 @app.get("/api/health")
@@ -84,13 +140,19 @@ def _require_corpus(corpus_id: str) -> None:
 @app.post("/api/ask")
 def ask(payload: AskIn) -> dict:
     _require_corpus(payload.corpus_id)
-    evidence = search_evidence(payload.corpus_id, payload.question, payload.k)
-    try:
-        answer = answer_query(payload.question, evidence)
-    except LLMUnavailable as exc:
-        # Une cle est configuree mais l'appel a echoue. On le dit, plutot que
-        # de retomber sur l'extractif et de laisser croire que tout va bien.
-        raise HTTPException(502, f"modèle indisponible : {exc}") from exc
+    if _is_security_question(payload.question):
+        summary = security_summary(payload.corpus_id)
+        if summary is None:
+            raise HTTPException(404, f"corpus inconnu : {payload.corpus_id}")
+        answer = _security_answer(summary)
+    else:
+        evidence = search_evidence(payload.corpus_id, payload.question, payload.k)
+        try:
+            answer = answer_query(payload.question, evidence)
+        except LLMUnavailable as exc:
+            # Une cle est configuree mais l'appel a echoue. On le dit, plutot que
+            # de retomber sur l'extractif et de laisser croire que tout va bien.
+            raise HTTPException(502, f"modèle indisponible : {exc}") from exc
 
     with connect() as conn:
         conn.execute(
