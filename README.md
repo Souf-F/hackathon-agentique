@@ -25,24 +25,25 @@ La protection qui compte est dans le code et le schéma de données, pas dans le
 
 ```bash
 git clone https://github.com/Souf-F/hackathon-agentique.git && cd hackathon-agentique
-cp .env.example .env      # renseigner LLM_API_KEY (clé Anthropic)
+cp .env.example .env      # renseigner ANTHROPIC_API_KEY (optionnel : sans clé, mode extractif)
 
-cd backend
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload
 ```
 
 ```bash
 # dans un second terminal
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/health
 
-curl -X POST http://127.0.0.1:8000/query \
+curl -X POST http://127.0.0.1:8000/api/corpus/demo
+
+curl -X POST http://127.0.0.1:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"question": "Quels candidats ont de l'\''expérience en Python ?"}'
+  -d '{"corpus_id": "<corpus_id>", "question": "Quelle expérience Python possède Camille Martin ?"}'
 ```
 
-Le corpus de démo (`data/demo_corpus/*.txt`) doit contenir au moins un fichier pour que `/query` réponde — voir `data/demo_corpus/README.md`.
+Le corpus de démo (`corpus_demo/*.txt`) doit contenir au moins un fichier pour que `/api/corpus/demo` réponde — voir `data/demo_corpus/README.md` pour le format attendu.
 
 ---
 
