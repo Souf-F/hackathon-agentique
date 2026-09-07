@@ -24,60 +24,10 @@ Les passages sont transmis dans un bloc délimité, jamais concaténés au syste
 
 ---
 
-## 3. Outils exposés au modèle
+## 3. Outils et fonctions
 
-Deux outils, tous deux en lecture seule.
-
-### `search_evidence`
-
-```python
-search_evidence(
-    corpus_id: str,
-    query: str,
-    k: int = 5,
-) -> list[EvidenceChunk]
-```
-
-Effet de bord : **non**.
-
-Retourne les passages admissibles les plus proches de la question. Le filtre de quarantaine est appliqué dans la requête de données, pas confié au modèle :
-
-```sql
-SELECT ... FROM chunks WHERE corpus_id = ? AND quarantined = 0
-```
-
-### `inspect_document`
-
-```python
-inspect_document(
-    document_id: str,
-) -> DocumentInspection
-```
-
-Effet de bord : **non**.
-
-Retourne uniquement des agrégats : `status`, `chunk_count`, `quarantined_count`, `categories`. Ni texte, ni extrait, ni `source_name` — sinon l'injection reviendrait dans le contexte du modèle sous couvert de rapport de sécurité, ou par le nom du fichier.
-
----
-
-## 4. Fonctions non accessibles au modèle
-
-Appelées par l'application, dans un ordre imposé par le code.
-
-```text
-ingest_corpus        (effet de bord : oui)
-chunk_document       (effet de bord : oui)
-analyze_chunk        (effet de bord : non)
-quarantine_chunk     (effet de bord : oui)
-record_security_event(effet de bord : oui)
-index_chunks         (effet de bord : oui)
-```
-
-**Pourquoi cette séparation** : si le modèle pouvait appeler `quarantine_chunk`, la frontière de sécurité se trouverait à l'intérieur du composant probabiliste. Un outil d'agent est une action dont le LLM décide ; une fonction de pipeline est une action que l'architecture impose. La quarantaine appartient à la seconde catégorie.
-
----
-
-## 4 bis. Plan de contrôle / plan d'affichage
+Liste complète (outils exposés au modèle + fonctions du pipeline), avec signatures typées et effets de bord : voir [OUTILS.md](OUTILS.md).
+## 4. Plan de contrôle / plan d'affichage
 
 Tout ce qui provient de l'auteur d'un document est exclu du contexte du modèle, quel que soit le chemin emprunté.
 
