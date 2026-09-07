@@ -59,3 +59,36 @@ def document_report(document_id: str) -> DocumentReport | None:
         quarantined_count=counts["flagged"] or 0,
         categories=[c["category"] for c in categories],
     )
+
+
+def document_preview(document_id: str) -> list[dict] | None:
+    """Corps intégral d'un document, pour l'aperçu humain du workspace.
+
+    Plan d'affichage uniquement : le texte renvoyé ici ne doit jamais
+    remonter vers le contexte du modèle. Le frontend l'affiche dans
+    `renderDocumentPreview` et c'est tout — il n'est ni concaténé à un
+    prompt, ni réutilisé par un outil. Le même principe que
+    `document_report` et que les `excerpt` du rapport de sécurité, qui
+    exposent eux aussi du contenu auteur pour la seule lecture humaine.
+    """
+    with connect() as conn:
+        doc = conn.execute(
+            "SELECT 1 FROM documents WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
+        if doc is None:
+            return None
+        rows = conn.execute(
+            "SELECT chunk_id, kind, text, quarantined FROM chunks"
+            " WHERE document_id = ? ORDER BY position",
+            (document_id,),
+        ).fetchall()
+    return [
+        {
+            "chunk_id": r["chunk_id"],
+            "kind": r["kind"],
+            "text": r["text"],
+            "quarantined": bool(r["quarantined"]),
+        }
+        for r in rows
+    ]
