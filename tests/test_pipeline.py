@@ -27,13 +27,13 @@ def test_un_seul_passage_est_quarantine():
     report = client.get(f"/api/corpus/{cid}/report").json()
     by_name = {d["source_name"]: d for d in report["documents"]}
 
-    piege = by_name["05_cv_camille_martin.txt"]
+    piege = by_name["cv_nico.txt"]
     assert piege["status"] == "suspicious"
     assert piege["quarantined_count"] == 1, "la quarantaine doit viser le passage"
     assert piege["chunk_count"] > 1
 
-    for name in ("01_cv_lea_bonnet.txt", "02_cv_yanis_ferrand.txt",
-                 "03_note_recrutement_securite.txt", "04_cv_sofia_delmas.txt"):
+    for name in ("cv_adam.txt", "cv_erwan.txt", "cv_noham.txt",
+                 "cv_panaki.txt", "cv_yoan.txt"):
         assert by_name[name]["status"] == "clean", f"faux positif sur {name}"
 
 
@@ -41,10 +41,22 @@ def test_le_contenu_legitime_du_document_piege_reste_exploitable():
     cid = _demo()
     r = client.post("/api/ask", json={
         "corpus_id": cid,
-        "question": "Quelle experience Python possede Camille Martin ?",
+        "question": "Quelles compétences JavaScript possède Nico ?",
     }).json()
-    assert "Python" in r["answer"]
-    assert any(c["source_name"] == "05_cv_camille_martin.txt" for c in r["citations"])
+    assert "JavaScript" in r["answer"]
+    assert any(c["source_name"] == "cv_nico.txt" for c in r["citations"])
+
+
+def test_question_sur_la_securite_repond_depuis_les_agregats():
+    cid = _demo()
+    r = client.post("/api/ask", json={
+        "corpus_id": cid,
+        "question": "Est-ce que tu as trouvé un problème de sécurité ?",
+    }).json()
+
+    assert r["mode"] == "security_summary"
+    assert "1 passage en quarantaine" in r["answer"]
+    assert r["citations"] == []
 
 
 def test_corpus_inconnu_renvoie_404():
