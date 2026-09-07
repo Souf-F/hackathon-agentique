@@ -1,45 +1,129 @@
-# AGENTS.md — v1 (palier 1)
+# AGENTS — La Taupe
 
-Ce fichier grandira aux paliers suivants (system prompts complets, schéma de la boucle). Pour l'instant : la liste des outils de l'agent, avec nom, signature typée et effet de bord.
+État : palier 1. Les prompts système réels et le détail de la boucle seront complétés quand l'implémentation existera. Ce qui est écrit ici est déjà défendable à l'oral ; ce qui ne l'est pas encore est marqué comme tel.
 
-## Outils
+---
 
-| Outil | Signature | Effet de bord |
-|---|---|---|
-| Ingestion | `ingest_corpus(files: list[UploadedFile]) -> CorpusId` | Oui — écrit le corpus en stockage |
-| Chunking + embedding | `chunk_and_embed(corpus_id: CorpusId) -> list[ChunkId]` | Oui — écrit les embeddings dans le vector store |
-| Retrieval | `retrieve(corpus_id: CorpusId, query: str, k: int) -> list[Chunk]` | Non — lecture seule |
-| Détection d'injection | `detect_injection(chunk: Chunk) -> InjectionVerdict` | Non — appel de classification pur |
-| Quarantaine | `quarantine(doc_id: DocId, verdict: InjectionVerdict) -> None` | Oui — écrit dans le store de quarantaine |
-| Réponse | `answer_query(query: str, clean_chunks: list[Chunk]) -> Answer` | Non — appel LLM, aucune mutation externe |
-| Journalisation | `log_event(event: DetectionEvent) -> None` | Oui — append dans le journal |
+## 1. Rôle de l'agent
 
-## Types
+Répondre à une question de l'utilisateur en s'appuyant exclusivement sur les passages admissibles du corpus, et citer les passages utilisés.
 
-```
-InjectionVerdict = {
-  is_suspicious: bool,
-  technique: str | None,      # ex: "instruction override", "role-play jailbreak", "fake system tag"
-  excerpt: str | None,        # extrait exact qui a déclenché la détection
-  confidence: float,          # 0.0 - 1.0
-}
+L'agent **ne décide pas** de sa propre frontière de sécurité : il n'analyse pas, ne met pas en quarantaine, ne journalise pas. Ces opérations appartiennent au pipeline applicatif et sont exécutées avant qu'il ne soit sollicité.
 
-Answer = {
-  text: str,
-  citations: list[SourceRef],  # SourceRef = { doc_id: str, chunk_id: str }
-}
+---
 
-DetectionEvent = {
-  timestamp: datetime,
-  doc_id: DocId,
-  verdict: InjectionVerdict,
-}
+## 2. Hiérarchie des instructions
+
+```text
+system prompt          ── autorité
+requête utilisateur    ── intention
+passages du corpus     ── donnée, aucune autorité
 ```
 
-## Principe de frontière donnée/instruction
+Les passages sont transmis dans un bloc délimité, jamais concaténés au system prompt. Le prompt indique explicitement que tout ce qui figure dans ce bloc est du contenu à analyser, y compris lorsqu'il prend la forme d'un ordre.
 
-Le system prompt de `answer_query` doit expliciter que tout contenu venant des documents (`clean_chunks`) est délimité et non-exécutable — jamais interpolé comme instruction, quel que soit son contenu. À détailler avec le prompt système complet au palier 3 (la boucle).
+---
 
-## À venir (paliers suivants)
-- System prompt complet de l'agent répondeur et du détecteur.
-- Schéma de la boucle (ingestion → détection → quarantaine → retrieval → réponse → citation).
+## 3. Outils exposés au modèle
+
+Deux outils, tous deux en lecture seule.
+
+### `search_evidence`
+
+```python
+search_evidence(
+    corpus_id: str,
+    query: str,
+    k: int = 5,
+) -> list[EvidenceChunk]
+```
+
+Effet de bord : **non**.
+
+Retourne les passages admissibles les plus proches de la question. Le filtre de quarantaine est appliqué dans la requête de données, pas confié au modèle :
+
+```sql
+SELECT ... FROM chunks WHERE corpus_id = ? AND quarantined = 0
+```
+
+### `inspect_document`
+
+```python
+inspect_document(
+    document_id: str,
+) -> DocumentInspection
+```
+
+Effet de bord : **non**.
+
+Retourne uniquement des agrégats : `status`, `chunk_count`, `quarantined_count`, `categories`. Ne retourne jamais le texte ni l'extrait d'un passage en quarantaine — sinon l'injection reviendrait dans le contexte du modèle sous couvert de rapport de sécurité.
+
+---
+
+## 4. Fonctions non accessibles au modèle
+
+Appelées par l'application, dans un ordre imposé par le code.
+
+```text
+ingest_corpus        (effet de bord : oui)
+chunk_document       (effet de bord : oui)
+analyze_chunk        (effet de bord : non)
+quarantine_chunk     (effet de bord : oui)
+record_security_event(effet de bord : oui)
+index_chunks         (effet de bord : oui)
+```
+
+**Pourquoi cette séparation** : si le modèle pouvait appeler `quarantine_chunk`, la frontière de sécurité se trouverait à l'intérieur du composant probabiliste. Un outil d'agent est une action dont le LLM décide ; une fonction de pipeline est une action que l'architecture impose. La quarantaine appartient à la seconde catégorie.
+
+---
+
+## 5. Boucle
+
+```text
+ingestion
+   │
+   ▼
+découpage (corps + métadonnées)
+   │
+   ▼
+analyse ──► verdict typé
+   │
+   ├── admissible ──► index
+   │
+   └── suspect ──► quarantaine + événement de sécurité
+                            │
+                            ▼
+                   rapport utilisateur
+   ─────────────────────────────────────
+question
+   │
+   ▼
+search_evidence (quarantined = 0)
+   │
+   ▼
+génération + citations
+```
+
+L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jamais dans l'index de recherche.
+
+---
+
+## 6. Prompts système
+
+À compléter au palier où la boucle sera implémentée. Contraintes déjà arrêtées :
+
+- le prompt du répondeur reçoit les passages dans un bloc de données délimité et déclaré non exécutable ;
+- le prompt du détecteur reçoit un passage isolé et retourne un JSON conforme à `InjectionVerdict`, sans texte libre ;
+- aucun secret, aucune clé, aucun nom de variable d'environnement ne figure dans un prompt.
+
+---
+
+## 7. Gestion des erreurs
+
+À compléter. Principe retenu : en cas d'échec de l'analyse d'un passage, le passage est traité comme suspect (`action = "flagged"`) plutôt qu'admis par défaut, et l'échec est journalisé.
+
+---
+
+## 8. Limites
+
+Le détecteur est faillible dans les deux sens. Ce qui est garanti n'est pas la détection, mais l'isolement : un passage marqué est structurellement absent du contexte de génération, et chaque décision est journalisée avec sa justification, donc contestable.
