@@ -116,6 +116,44 @@ def create_corpus(payload: IngestIn) -> dict:
     return ingest_corpus([(d.source_name, d.text) for d in payload.documents])
 
 
+@app.post("/api/corpus/{corpus_id}/documents")
+def add_documents(corpus_id: str, payload: IngestIn) -> dict:
+    """Ajoute des documents au corpus courant, sans remplacer son contenu."""
+    _require_corpus(corpus_id)
+    if not payload.documents:
+        raise HTTPException(400, "aucun document à ajouter")
+    return ingest_corpus(
+        [(d.source_name, d.text) for d in payload.documents], corpus_id=corpus_id,
+    )
+
+
+@app.delete("/api/corpus/{corpus_id}/documents/{document_id}")
+def delete_document(corpus_id: str, document_id: str) -> dict:
+    """Retire explicitement un document et ses données dérivées du corpus.
+
+    Cette action utilisateur n'est pas accessible au modèle. Les chunks et
+    événements associés sont retirés ensemble : le rapport ne peut pas
+    conserver une alerte orpheline vers un document qui n'existe plus.
+    """
+    _require_corpus(corpus_id)
+    with connect() as conn:
+        document = conn.execute(
+            "SELECT 1 FROM documents WHERE document_id = ? AND corpus_id = ?",
+            (document_id, corpus_id),
+        ).fetchone()
+        if document is None:
+            raise HTTPException(404, "document inconnu dans ce corpus")
+
+        conn.execute(
+            "DELETE FROM security_events WHERE corpus_id = ? AND document_id = ?",
+            (corpus_id, document_id),
+        )
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+        conn.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+
+    return {"deleted_document_id": document_id}
+
+
 @app.post("/api/corpus/demo")
 def create_demo_corpus() -> dict:
     """Charge le corpus de démonstration livré avec le dépôt.

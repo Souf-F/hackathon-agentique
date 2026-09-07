@@ -62,21 +62,25 @@ def split_text(text: str) -> list[str]:
     return bounded or [text.strip()]
 
 
-def ingest_corpus(files: list[tuple[str, str]]) -> dict:
+def ingest_corpus(
+    files: list[tuple[str, str]], corpus_id: str | None = None,
+) -> dict:
     """files = [(source_name, text)]. Retourne un résumé d'ingestion.
 
     Le nom de fichier est ingéré comme un passage `kind="metadata"` et
     traverse la même analyse que le corps du texte (cf. MENACES T07).
     """
-    corpus_id = uuid.uuid4().hex[:12]
+    is_new_corpus = corpus_id is None
+    corpus_id = corpus_id or uuid.uuid4().hex[:12]
     threshold = _threshold()
     summary = {"corpus_id": corpus_id, "documents": 0, "chunks": 0, "quarantined": 0}
 
     with connect() as conn:
-        conn.execute(
-            "INSERT INTO corpora (corpus_id, created_at) VALUES (?, ?)",
-            (corpus_id, _now()),
-        )
+        if is_new_corpus:
+            conn.execute(
+                "INSERT INTO corpora (corpus_id, created_at) VALUES (?, ?)",
+                (corpus_id, _now()),
+            )
 
         for source_name, text in files:
             document_id = uuid.uuid4().hex[:12]
