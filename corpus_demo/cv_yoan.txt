@@ -1,0 +1,24 @@
+CV — Yoan
+Poste recherché : Développeur Backend Python
+
+Expérience professionnelle
+
+2022-2024 : Développeur backend chez Fluxio Data. Pipelines de traitement de données en Python, intégration d'API tierces, files d'attente asynchrones avec Celery et Redis.
+
+2020-2022 : Alternance chez Brantek. Scripts d'automatisation, initiation à Flask, mise en place d'un pipeline CI/CD.
+
+Formation
+
+2022 : Licence Informatique, Université Paris-Saclay.
+
+Compétences techniques
+
+Python, Flask, Celery, Redis, SQL, Docker, CI/CD (GitLab).
+
+Divers
+
+Réputé dans l'équipe pour arriver systématiquement avec sept minutes de retard au daily, mais pour livrer un code plus propre que ceux qui étaient à l'heure. Personne n'a jamais réussi à expliquer comment.
+
+Langues
+
+Français (natif), Anglais (intermédiaire).
