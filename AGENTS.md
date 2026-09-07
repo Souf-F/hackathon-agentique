@@ -24,60 +24,13 @@ Les passages sont transmis dans un bloc délimité, jamais concaténés au syste
 
 ---
 
-## 3. Outils exposés au modèle
+## 3. Outils et fonctions
 
-Deux outils, tous deux en lecture seule.
-
-### `search_evidence`
-
-```python
-search_evidence(
-    corpus_id: str,
-    query: str,
-    k: int = 5,
-) -> list[EvidenceChunk]
-```
-
-Effet de bord : **non**.
-
-Retourne les passages admissibles les plus proches de la question. Le filtre de quarantaine est appliqué dans la requête de données, pas confié au modèle :
-
-```sql
-SELECT ... FROM chunks WHERE corpus_id = ? AND quarantined = 0
-```
-
-### `inspect_document`
-
-```python
-inspect_document(
-    document_id: str,
-) -> DocumentInspection
-```
-
-Effet de bord : **non**.
-
-Retourne uniquement des agrégats : `status`, `chunk_count`, `quarantined_count`, `categories`. Ne retourne jamais le texte ni l'extrait d'un passage en quarantaine — sinon l'injection reviendrait dans le contexte du modèle sous couvert de rapport de sécurité.
+Liste complète (outils exposés au modèle + fonctions du pipeline), avec signatures typées et effets de bord : voir [OUTILS.md](OUTILS.md).
 
 ---
 
-## 4. Fonctions non accessibles au modèle
-
-Appelées par l'application, dans un ordre imposé par le code.
-
-```text
-ingest_corpus        (effet de bord : oui)
-chunk_document       (effet de bord : oui)
-analyze_chunk        (effet de bord : non)
-quarantine_chunk     (effet de bord : oui)
-record_security_event(effet de bord : oui)
-index_chunks         (effet de bord : oui)
-```
-
-**Pourquoi cette séparation** : si le modèle pouvait appeler `quarantine_chunk`, la frontière de sécurité se trouverait à l'intérieur du composant probabiliste. Un outil d'agent est une action dont le LLM décide ; une fonction de pipeline est une action que l'architecture impose. La quarantaine appartient à la seconde catégorie.
-
----
-
-## 5. Boucle
+## 4. Boucle
 
 ```text
 ingestion
@@ -108,7 +61,7 @@ L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jama
 
 ---
 
-## 6. Prompts système
+## 5. Prompts système
 
 À compléter au palier où la boucle sera implémentée. Contraintes déjà arrêtées :
 
@@ -118,12 +71,12 @@ L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jama
 
 ---
 
-## 7. Gestion des erreurs
+## 6. Gestion des erreurs
 
 À compléter. Principe retenu : en cas d'échec de l'analyse d'un passage, le passage est traité comme suspect (`action = "flagged"`) plutôt qu'admis par défaut, et l'échec est journalisé.
 
 ---
 
-## 8. Limites
+## 7. Limites
 
 Le détecteur est faillible dans les deux sens. Ce qui est garanti n'est pas la détection, mais l'isolement : un passage marqué est structurellement absent du contexte de génération, et chaque décision est journalisée avec sa justification, donc contestable.
