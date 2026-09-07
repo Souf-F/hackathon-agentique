@@ -16,7 +16,7 @@ load_dotenv()
 from .answer import LLMUnavailable, answer_query  # noqa: E402
 from .db import connect, init_db          # noqa: E402
 from .pipeline import ingest_corpus       # noqa: E402
-from .display import document_report, resolve_source_names  # noqa: E402
+from .display import document_preview, document_report, resolve_source_names  # noqa: E402
 from .tools import inspect_document, search_evidence  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -155,6 +155,23 @@ def document(document_id: str) -> dict:
     if insp is None:
         raise HTTPException(404, "document inconnu")
     return asdict(insp)
+
+
+@app.get("/api/document/{document_id}/preview")
+def document_preview_route(document_id: str) -> dict:
+    """Corps intégral d'un document, pour l'aperçu humain du workspace.
+
+    Volontairement séparé de `/api/document/{id}` : ce dernier ne renvoie
+    que des agrégats (ce que l'agent a le droit de voir), alors que cet
+    endpoint expose le texte des passages — y compris ceux qui sont
+    marqués en quarantaine. Le frontend l'utilise uniquement pour
+    `renderDocumentPreview` ; rien de ce qu'il renvoie ne doit être
+    réinjecté dans un prompt.
+    """
+    chunks = document_preview(document_id)
+    if chunks is None:
+        raise HTTPException(404, "document inconnu")
+    return {"chunks": chunks}
 
 
 @app.get("/")
