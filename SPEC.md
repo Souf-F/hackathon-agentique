@@ -104,7 +104,7 @@ Détection optimisée pour le français et l'anglais.
 
 ## 4. Outils accessibles au modèle
 
-Les seuls outils exposés à la boucle LLM sont en lecture seule. Le modèle ne dispose d'aucun moyen d'écrire, de quarantainer, de déquarantainer ou de journaliser.
+Les seuls outils exposés à la boucle LLM sont en lecture seule. Le modèle ne dispose d'aucun moyen d'écrire, de quarantiner, de déquarantiner ou de journaliser.
 
 ### `search_evidence`
 
@@ -134,7 +134,7 @@ inspect_document(
 
 Effet de bord : **non**.
 
-Retourne des informations agrégées sur un document (statut, nombre de passages, nombre de passages exclus, catégories détectées). **Ne retourne jamais le texte ni l'extrait d'un passage en quarantaine** : le rapport détaillé est destiné à l'utilisateur, pas à l'agent. Sans cette règle, l'injection reviendrait dans le contexte du modèle par la porte de service.
+Retourne des agrégats : statut, nombre de passages, nombre de passages exclus, catégories détectées. **Ne retourne ni texte, ni extrait, ni nom de fichier.** Le nom du fichier est fourni par l'auteur du document : le transmettre au modèle rouvrirait, par une seconde porte, le chemin que la quarantaine du chunk `metadata` a fermé. La version destinée à l'utilisateur, `DocumentReport`, porte le nom et ne sort que vers l'interface.
 
 ---
 
@@ -167,11 +167,10 @@ class Chunk:
     position: int
 
 @dataclass
-class EvidenceChunk:
+class EvidenceChunk:          # PLAN DE CONTRÔLE — pas de source_name
     chunk_id: str
     document_id: str
     text: str
-    source_name: str
     page: int | None
 
 @dataclass
@@ -204,13 +203,22 @@ class SecurityEvent:
     action: Literal["quarantined", "flagged"]
 
 @dataclass
-class DocumentInspection:
+class AgentDocumentInspection:   # PLAN DE CONTRÔLE
+    document_id: str
+    status: Literal["clean", "suspicious"]
+    chunk_count: int
+    quarantined_count: int
+    categories: list[str]     # ni extrait, ni texte, ni nom de fichier
+
+
+@dataclass
+class DocumentReport:            # PLAN D'AFFICHAGE — interface seulement
     document_id: str
     source_name: str
     status: Literal["clean", "suspicious"]
     chunk_count: int
     quarantined_count: int
-    categories: list[str]     # jamais d'extrait, jamais de texte quarantainé
+    categories: list[str]
 
 @dataclass
 class SourceRef:
@@ -239,6 +247,8 @@ chunk 4 = admissible
 ```
 
 Rejeter le document entier ferait perdre de l'information légitime à cause d'un seul passage hostile. Les métadonnées (nom de fichier, titre, auteur) sont traitées comme des passages `kind="metadata"` et passent par la même analyse : c'est ainsi qu'on évite l'angle mort du scan limité au corps du texte.
+
+Cela ne suffit pas. Le nom de fichier existe aussi dans `documents.source_name`, qui n'est pas un passage et que la quarantaine ne touche pas. Les deux chemins doivent être fermés : rien de ce qui provient de l'auteur d'un document n'entre dans le contexte du modèle, ni comme passage, ni comme métadonnée d'affichage. Le nom lisible est résolu après génération.
 
 ---
 

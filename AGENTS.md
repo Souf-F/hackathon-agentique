@@ -56,7 +56,7 @@ inspect_document(
 
 Effet de bord : **non**.
 
-Retourne uniquement des agrégats : `status`, `chunk_count`, `quarantined_count`, `categories`. Ne retourne jamais le texte ni l'extrait d'un passage en quarantaine — sinon l'injection reviendrait dans le contexte du modèle sous couvert de rapport de sécurité.
+Retourne uniquement des agrégats : `status`, `chunk_count`, `quarantined_count`, `categories`. Ni texte, ni extrait, ni `source_name` — sinon l'injection reviendrait dans le contexte du modèle sous couvert de rapport de sécurité, ou par le nom du fichier.
 
 ---
 
@@ -74,6 +74,29 @@ index_chunks         (effet de bord : oui)
 ```
 
 **Pourquoi cette séparation** : si le modèle pouvait appeler `quarantine_chunk`, la frontière de sécurité se trouverait à l'intérieur du composant probabiliste. Un outil d'agent est une action dont le LLM décide ; une fonction de pipeline est une action que l'architecture impose. La quarantaine appartient à la seconde catégorie.
+
+---
+
+## 4 bis. Plan de contrôle / plan d'affichage
+
+Tout ce qui provient de l'auteur d'un document est exclu du contexte du modèle, quel que soit le chemin emprunté.
+
+```text
+                    │ plan de contrôle │ plan d'affichage
+────────────────────┼──────────────────┼─────────────────
+texte du passage    │ oui, si admis    │ oui
+chunk_id            │ oui              │ oui
+nom de fichier      │ NON              │ oui
+extrait quarantiné  │ NON              │ oui (rapport)
+```
+
+Le prompt ne contient que des identifiants opaques :
+
+```text
+[chunk_id=f025c64f document_id=e0423c85]
+```
+
+Le nom lisible est résolu après génération par `display.resolve_source_names`.
 
 ---
 
