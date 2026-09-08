@@ -7,7 +7,7 @@ déquarantiner, ni journaliser, ni modifier la politique de sécurité.
 import re
 import unicodedata
 
-from .db import connect
+from .db import connect, guard_database
 from .models import AgentDocumentInspection, EvidenceChunk
 
 STOPWORDS = {
@@ -38,7 +38,7 @@ def search_evidence(corpus_id: str, query: str, k: int = 5) -> list[EvidenceChun
     quarantaine est structurellement absent du résultat, quelle que soit
     sa pertinence — et quoi qu'en dise le modèle.
     """
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         # ORDER BY explicite : le contexte d'en-tete ci-dessous depend du
         # premier passage admissible de chaque document. Sans tri, cet ordre
         # serait une propriete du moteur, pas de la requete.
@@ -89,7 +89,7 @@ def inspect_document(document_id: str) -> AgentDocumentInspection | None:
     document est exclu du plan de contrôle. La version destinée à
     l'utilisateur est `display.document_report`.
     """
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         doc = conn.execute(
             "SELECT document_id, status FROM documents WHERE document_id = ?",
             (document_id,),

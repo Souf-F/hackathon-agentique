@@ -1,33 +1,62 @@
-"""API de La Taupe."""
+"""API de La Taupe (Palier 4 : runs, kill switch, journal durable)."""
 
+import inspect
 import json
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
 
+from . import journal as journal_mod  # noqa: E402
+from . import run_control as runs  # noqa: E402
+from .agent import (  # noqa: E402
+    aagent_events,
+    agent_events,
+    arun_agent,
+    run_agent,
+)
 from .answer import LLMUnavailable  # noqa: E402
-from .agent import agent_events, run_agent  # noqa: E402
-from .db import connect, init_db          # noqa: E402
-from .pipeline import ingest_corpus       # noqa: E402
+from .db import connect, init_db  # noqa: E402
 from .display import (  # noqa: E402
     document_preview, document_report, resolve_source_names, security_summary,
 )
+from .errors import ResourceUnavailable, RunStopped  # noqa: E402
+from .pipeline import ingest_corpus  # noqa: E402
 from .tools import inspect_document  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 CORPUS_DEMO = ROOT / "corpus_demo"
 
-app = FastAPI(title="La Taupe", version="0.2.0")
+_original_run_agent = run_agent
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Schéma garanti au démarrage (création autorisée UNIQUEMENT ici et à
+    # l'import), puis récupération : tout run journalisé sans événement
+    # terminal est marqué run_interrupted (heure de détection honnête).
+    try:
+        init_db(create=True)
+    except Exception:
+        pass
+    try:
+        journal_mod.mark_interrupted_runs()
+    except Exception:
+        pass
+    yield
+
+
+app = FastAPI(title="La Taupe", version="0.3.0", lifespan=lifespan)
 
 # Le schema est cree a l'import, pas seulement au demarrage du serveur :
 # un premier lancement sur une machine vierge ne doit demander aucune
@@ -59,7 +88,10 @@ def health() -> dict:
 def create_corpus(payload: IngestIn) -> dict:
     if not payload.documents:
         raise HTTPException(400, "corpus vide")
-    return ingest_corpus([(d.source_name, d.text) for d in payload.documents])
+    try:
+        return ingest_corpus([(d.source_name, d.text) for d in payload.documents])
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
 
 
 @app.post("/api/corpus/{corpus_id}/documents")
@@ -68,9 +100,12 @@ def add_documents(corpus_id: str, payload: IngestIn) -> dict:
     _require_corpus(corpus_id)
     if not payload.documents:
         raise HTTPException(400, "aucun document à ajouter")
-    return ingest_corpus(
-        [(d.source_name, d.text) for d in payload.documents], corpus_id=corpus_id,
-    )
+    try:
+        return ingest_corpus(
+            [(d.source_name, d.text) for d in payload.documents], corpus_id=corpus_id,
+        )
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
 
 
 @app.delete("/api/corpus/{corpus_id}/documents/{document_id}")
@@ -82,20 +117,23 @@ def delete_document(corpus_id: str, document_id: str) -> dict:
     conserver une alerte orpheline vers un document qui n'existe plus.
     """
     _require_corpus(corpus_id)
-    with connect() as conn:
-        document = conn.execute(
-            "SELECT 1 FROM documents WHERE document_id = ? AND corpus_id = ?",
-            (document_id, corpus_id),
-        ).fetchone()
-        if document is None:
-            raise HTTPException(404, "document inconnu dans ce corpus")
+    try:
+        with connect() as conn:
+            document = conn.execute(
+                "SELECT 1 FROM documents WHERE document_id = ? AND corpus_id = ?",
+                (document_id, corpus_id),
+            ).fetchone()
+            if document is None:
+                raise HTTPException(404, "document inconnu dans ce corpus")
 
-        conn.execute(
-            "DELETE FROM security_events WHERE corpus_id = ? AND document_id = ?",
-            (corpus_id, document_id),
-        )
-        conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
-        conn.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+            conn.execute(
+                "DELETE FROM security_events WHERE corpus_id = ? AND document_id = ?",
+                (corpus_id, document_id),
+            )
+            conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+            conn.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
 
     return {"deleted_document_id": document_id}
 
@@ -109,44 +147,78 @@ def create_demo_corpus() -> dict:
     files = sorted(CORPUS_DEMO.glob("*.txt"))
     if not files:
         raise HTTPException(500, "corpus de démonstration introuvable")
-    return ingest_corpus([(f.name, f.read_text(encoding="utf-8")) for f in files])
+    try:
+        return ingest_corpus([(f.name, f.read_text(encoding="utf-8")) for f in files])
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
 
 
 def _require_corpus(corpus_id: str) -> None:
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
-        ).fetchone()
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,)
+            ).fetchone()
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     if row is None:
         raise HTTPException(404, f"corpus inconnu : {corpus_id}")
 
 
-@app.post("/api/ask")
-def ask(payload: AskIn) -> dict:
-    _require_corpus(payload.corpus_id)
+async def _execute_run(question: str, corpus_id: str, run_id: str):
+    """Passe par backend.main.run_agent si les tests l'ont mocké, sinon arun_agent."""
+    func = globals().get("run_agent", _original_run_agent)
+    if func is _original_run_agent:
+        return await arun_agent(question, corpus_id, run_id=run_id)
     try:
-        run = run_agent(payload.question, payload.corpus_id)
+        result = func(question, corpus_id, run_id=run_id)
+    except TypeError:
+        result = func(question, corpus_id)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+@app.post("/api/ask")
+async def ask(payload: AskIn) -> dict:
+    _require_corpus(payload.corpus_id)
+    run_id = uuid.uuid4().hex[:12]
+    try:
+        run = await _execute_run(payload.question, payload.corpus_id, run_id)
+    except RunStopped as exc:
+        raise HTTPException(409, f"run arrêté par l'opérateur : {exc.run_id or run_id}") from exc
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     except LLMUnavailable as exc:
         raise HTTPException(502, f"modèle indisponible : {exc}") from exc
     answer = run.answer
+    run_id = getattr(run, "run_id", "") or run_id
 
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO queries (query_id, corpus_id, timestamp, question, answer)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (
-                uuid.uuid4().hex[:12],
-                payload.corpus_id,
-                datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                payload.question,
-                answer.text,
-            ),
-        )
+    try:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO queries (query_id, corpus_id, run_id, timestamp, question, answer)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex[:12],
+                    payload.corpus_id,
+                    run_id,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    payload.question,
+                    answer.text,
+                ),
+            )
+    except ResourceUnavailable:
+        pass
 
     # Le nom lisible est ajouté ICI, apres la generation : il n'a jamais
     # traverse le contexte du modele.
-    names = resolve_source_names([c.chunk_id for c in answer.citations])
+    try:
+        names = resolve_source_names([c.chunk_id for c in answer.citations])
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     return {
+        "run_id": run_id,
         "answer": answer.text,
         "mode": answer.mode,
         "citations": [
@@ -158,17 +230,75 @@ def ask(payload: AskIn) -> dict:
 
 
 @app.post("/api/ask/stream")
-def ask_stream(payload: AskIn) -> StreamingResponse:
+async def ask_stream(payload: AskIn) -> StreamingResponse:
     _require_corpus(payload.corpus_id)
 
-    def stream():
+    async def stream():
+        terminal_yielded = False
+
+        def sse(event: dict) -> str:
+            return f"data: {json.dumps(event)}\n\n"
+
         try:
-            for event in agent_events(payload.question, payload.corpus_id):
-                yield f"data: {json.dumps(event)}\n\n"
-        except LLMUnavailable as exc:
-            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Le modèle ne peut pas répondre.'}})}\n\n"
+            async for event in aagent_events(payload.question, payload.corpus_id):
+                if event.get("type") in (
+                    "done", "stopped", "resource_unavailable", "error",
+                ):
+                    terminal_yielded = True
+                yield sse(event)
+        except RunStopped:
+            if not terminal_yielded:
+                yield sse({"type": "stopped", "data": {}})
+        except ResourceUnavailable as exc:
+            if not terminal_yielded:
+                yield sse({"type": "resource_unavailable", "data": {
+                    "resource": exc.resource, "code": exc.code,
+                    "message": exc.public_message,
+                    "timestamp": journal_mod._now(),
+                }})
+        except LLMUnavailable:
+            if not terminal_yielded:
+                yield sse({"type": "error", "data": {"message": "Le modèle ne peut pas répondre."}})
+        except Exception:
+            if not terminal_yielded:
+                yield sse({"type": "error", "data": {"message": "Le modèle ne peut pas répondre."}})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/runs/{run_id}/stop")
+def stop_run(run_id: str) -> dict:
+    """Kill switch opérateur : idempotent, ne tue jamais le serveur."""
+    record = runs.get(run_id)
+    if record is None:
+        events = journal_mod.events_for_run(run_id)
+        if not events:
+            raise HTTPException(404, f"run inconnu : {run_id}")
+        terminal = [e for e in events if e.get("type") in journal_mod.TERMINAL_EVENTS]
+        if terminal:
+            last = terminal[-1]
+            return {"run_id": run_id, "status": last.get("status") or "stopped",
+                    "timestamp": last.get("timestamp")}
+        record, _, timestamp = runs.request_stop(run_id)
+        return {"run_id": run_id, "status": record.status, "timestamp": timestamp}
+    record, already_terminal, timestamp = runs.request_stop(run_id)
+    return {"run_id": run_id, "status": record.status, "timestamp": timestamp}
+
+
+@app.get("/api/runs/{run_id}/journal")
+def run_journal(run_id: str) -> dict:
+    """Événements d'un run, dans l'ordre seq. Lecture seule."""
+    events = journal_mod.events_for_run(run_id)
+    if not events:
+        raise HTTPException(404, f"run inconnu : {run_id}")
+    return {"run_id": run_id, "events": events}
+
+
+@app.get("/api/journal/recent")
+def journal_recent(limit: int = Query(default=100)) -> dict:
+    """Derniers événements tous runs. Limite bornée, lecture seule."""
+    events = journal_mod.recent(limit)
+    return {"events": events, "count": len(events)}
 
 
 @app.get("/api/corpus/{corpus_id}/report")
@@ -178,17 +308,20 @@ def report(corpus_id: str) -> dict:
     C'est le seul endroit où l'extrait hostile réapparaît.
     """
     _require_corpus(corpus_id)
-    with connect() as conn:
-        events = conn.execute(
-            "SELECT timestamp, source_name, document_id, chunk_id, category,"
-            " excerpt, reason, confidence, action FROM security_events"
-            " WHERE corpus_id = ? ORDER BY timestamp",
-            (corpus_id,),
-        ).fetchall()
-        docs = conn.execute(
-            "SELECT document_id FROM documents WHERE corpus_id = ?",
-            (corpus_id,),
-        ).fetchall()
+    try:
+        with connect() as conn:
+            events = conn.execute(
+                "SELECT timestamp, source_name, document_id, chunk_id, category,"
+                " excerpt, reason, confidence, action FROM security_events"
+                " WHERE corpus_id = ? ORDER BY timestamp",
+                (corpus_id,),
+            ).fetchall()
+            docs = conn.execute(
+                "SELECT document_id FROM documents WHERE corpus_id = ?",
+                (corpus_id,),
+            ).fetchall()
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
 
     return {
         "events": [dict(e) for e in events],
@@ -213,7 +346,10 @@ def corpus_security_summary(corpus_id: str) -> dict:
     de fichier, aucun identifiant d'auteur.
     """
     _require_corpus(corpus_id)
-    summary = security_summary(corpus_id)
+    try:
+        summary = security_summary(corpus_id)
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     if summary is None:
         raise HTTPException(404, f"corpus inconnu : {corpus_id}")
     return summary
@@ -226,7 +362,10 @@ def document(document_id: str) -> dict:
     Sans nom de fichier, donc : c'est le point de l'endpoint. Le rapport
     utilisateur, lui, passe par /api/corpus/{id}/report.
     """
-    insp = inspect_document(document_id)
+    try:
+        insp = inspect_document(document_id)
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     if insp is None:
         raise HTTPException(404, "document inconnu")
     return asdict(insp)
@@ -243,7 +382,10 @@ def document_preview_route(document_id: str) -> dict:
     `renderDocumentPreview` ; rien de ce qu'il renvoie ne doit être
     réinjecté dans un prompt.
     """
-    chunks = document_preview(document_id)
+    try:
+        chunks = document_preview(document_id)
+    except ResourceUnavailable as exc:
+        raise HTTPException(503, exc.public_message) from exc
     if chunks is None:
         raise HTTPException(404, "document inconnu")
     return {"chunks": chunks}

@@ -9,7 +9,7 @@ La règle tient en une ligne : un identifiant traverse la boucle LLM, un nom
 lisible est résolu après elle.
 """
 
-from .db import connect
+from .db import connect, guard_database
 from .models import DocumentReport
 
 
@@ -18,7 +18,7 @@ def resolve_source_names(chunk_ids: list[str]) -> dict[str, str]:
     if not chunk_ids:
         return {}
     placeholders = ",".join("?" * len(chunk_ids))
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         rows = conn.execute(
             f"SELECT c.chunk_id, d.source_name FROM chunks c"
             f" JOIN documents d ON d.document_id = c.document_id"
@@ -30,7 +30,7 @@ def resolve_source_names(chunk_ids: list[str]) -> dict[str, str]:
 
 def document_report(document_id: str) -> DocumentReport | None:
     """Version utilisateur de `inspect_document`, nom de fichier compris."""
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         doc = conn.execute(
             "SELECT document_id, source_name, status FROM documents"
             " WHERE document_id = ?",
@@ -75,7 +75,7 @@ def security_summary(corpus_id: str) -> dict | None:
     Aucun extrait, aucun texte de chunk, aucun nom de fichier, aucun
     identifiant utilisateur. C'est un agrégat, pas une fuite.
     """
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         corpus = conn.execute(
             "SELECT 1 FROM corpora WHERE corpus_id = ?", (corpus_id,),
         ).fetchone()
@@ -126,7 +126,7 @@ def document_preview(document_id: str) -> list[dict] | None:
     `document_report` et que les `excerpt` du rapport de sécurité, qui
     exposent eux aussi du contenu auteur pour la seule lecture humaine.
     """
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         doc = conn.execute(
             "SELECT 1 FROM documents WHERE document_id = ?",
             (document_id,),

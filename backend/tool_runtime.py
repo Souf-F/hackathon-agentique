@@ -1,11 +1,13 @@
 """Runtime capability-bound des outils exposes au modele."""
 
 import json
+import sqlite3
 import time
 import uuid
 from datetime import datetime, timezone
 
 from .db import connect
+from .errors import ResourceUnavailable
 from .tools import search_evidence
 
 MAX_QUERY_CHARS = 2000
@@ -15,8 +17,9 @@ MAX_K = 12
 class ToolRuntime:
     """Expose uniquement les outils lecture seule pour un corpus donne."""
 
-    def __init__(self, corpus_id: str):
+    def __init__(self, corpus_id: str, run_id: str | None = None):
         self.corpus_id = corpus_id
+        self.run_id = run_id
         self.traces: list[dict] = []
         self.returned_chunk_ids: set[str] = set()
         self.returned_chunks: dict[str, str] = {}
@@ -47,6 +50,8 @@ class ToolRuntime:
             else:
                 result = handler(arguments)
             status = result["status"]
+        except ResourceUnavailable:
+            raise
         except Exception:
             result = self._error("TOOL_EXECUTION_ERROR", "La recherche n'a pas pu être exécutée.")
             status = "error"
@@ -60,8 +65,18 @@ class ToolRuntime:
             "duration_ms": duration_ms,
             "result": self._trace_result(result),
         }
+        if self.run_id:
+            trace["run_id"] = self.run_id
         self.traces.append(trace)
-        self._persist(trace)
+        try:
+            self._persist(trace)
+        except ResourceUnavailable:
+            raise
+        except (sqlite3.Error, OSError) as exc:
+            raise ResourceUnavailable(
+                "database", "DATABASE_UNAVAILABLE",
+                "La base de données est indisponible.",
+            ) from exc
         return result
 
     def _search_evidence(self, arguments: object) -> dict:
@@ -74,7 +89,15 @@ class ToolRuntime:
         if isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= MAX_K:
             return self._error("INVALID_ARGUMENTS", "k doit être compris entre 1 et 12.")
 
-        chunks = search_evidence(self.corpus_id, query.strip(), k)
+        try:
+            chunks = search_evidence(self.corpus_id, query.strip(), k)
+        except ResourceUnavailable:
+            raise
+        except (sqlite3.Error, OSError) as exc:
+            raise ResourceUnavailable(
+                "database", "DATABASE_UNAVAILABLE",
+                "La base de données est indisponible.",
+            ) from exc
         items = [{
             "chunk_id": chunk.chunk_id,
             "document_id": chunk.document_id,
@@ -88,10 +111,10 @@ class ToolRuntime:
     def _persist(self, trace: dict) -> None:
         with connect() as conn:
             conn.execute(
-                "INSERT INTO tool_calls (call_id, corpus_id, timestamp, tool, arguments, status, duration_ms, result)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO tool_calls (call_id, corpus_id, run_id, timestamp, tool, arguments, status, duration_ms, result)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    trace["call_id"], self.corpus_id,
+                    trace["call_id"], self.corpus_id, self.run_id,
                     datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     trace["tool"], json.dumps(trace["arguments"]), trace["status"],
                     trace["duration_ms"], json.dumps(trace["result"]),
