@@ -1,6 +1,6 @@
 # AGENTS — La Taupe
 
-État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4 ; puis `status`/`confidence`/`metrics`, palier 5) est entièrement livrée et vérifiée en direct — 27/28 scénarios passent, un seul (annulation sur déconnexion client) reste en échec honnête, cf. DURCISSEMENT.md. Ce qui est marqué « livré » est vérifié — ne pas prétendre le contraire à l'oral, mais ne pas non plus sous-vendre ce qui marche.
+État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4 ; puis `status`/`confidence`/`metrics`, palier 5) est entièrement livrée et vérifiée en direct — 28/28 scénarios passent. Un point de vigilance non automatisé reste ouvert (repair loop de format JSON pas fiable à 100 % sous prompt hostile élaboré), cf. DURCISSEMENT.md H20. Ce qui est marqué « livré » est vérifié — ne pas prétendre le contraire à l'oral, mais ne pas non plus sous-vendre ce qui marche.
 
 ---
 
@@ -167,7 +167,7 @@ Quand une ressource externe (API du modèle, base de données) devient indisponi
 
 ### Palier 5 — livré et vérifié en direct
 
-`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (`model`, `model_calls`, `tool_calls`, `input_tokens`, `output_tokens`, `duration_ms`, `estimated_cost_usd`) sur `Answer` : ajoutés à `backend/models.py`, calculés dans `backend/agent.py`, exposés par `backend/main.py`. Validation d'entrée (question/document vides ou hors bornes) ajoutée via Pydantic. 27/28 scénarios passent (`evals/run_eval.py`), y compris un test en direct contre le vrai modèle Anthropic (pas seulement mocké). Le seul point non livré : l'annulation propre sur déconnexion client — tentée, testée en direct, cause un blocage plutôt qu'un arrêt propre, retirée volontairement. Détail complet, scénario par scénario, dans DURCISSEMENT.md.
+`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (`model`, `model_calls`, `tool_calls`, tokens, `duration_ms`, `estimated_cost_usd`, `usage_available`, `pricing_status`) sur `Answer` : livrés par Erwan (`backend/models.py`, `backend/agent.py`, `backend/main.py`, `backend/metrics.py`). Validation d'entrée bornée en octets réels (question, taille/nombre de documents, taille totale d'upload). Annulation propre sur déconnexion client résolue par annulation directe de la tâche `asyncio` qui porte l'appel fournisseur (pas un watcher HTTP en polling — une première tentative dans ce sens, côté Souf, avait été testée en direct et abandonnée car elle bloquait le run indéfiniment ; cf. JOURNAL.md entrée 10). **28/28 scénarios passent** (`evals/run_eval.py`), y compris plusieurs tests en direct contre le vrai modèle Anthropic. Un point de vigilance non automatisé signalé mais pas corrigé : un prompt hostile plus élaboré peut, environ une fois sur cinq observée, faire échouer le repair loop de format JSON (échec typé, HTTP 502, aucune fuite — pas une régression de sécurité, mais une UX à améliorer). Détail complet, scénario par scénario, dans DURCISSEMENT.md.
 
 ### Streaming et boucle d'outils conservés
 

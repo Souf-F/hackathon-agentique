@@ -12,7 +12,7 @@ Code de sortie `0` si tous les scénarios passent, `1` sinon. Le score et la rai
 
 ## État actuel
 
-**27/28.** Le contrat palier 5 (`status`, `confidence`, `metrics` sur `Answer`) est livré et testé, y compris en direct contre le vrai modèle (pas seulement en mode mocké — voir DURCISSEMENT.md). Un seul scénario bloqué, honnêtement : `client_disconnect` a été tenté, testé en direct, et cause un run bloqué indéfiniment plutôt qu'un arrêt propre — retiré volontairement plutôt que livré cassé.
+**28/28.** Le contrat palier 5 (`status`, `confidence`, `metrics` sur `Answer`, livré par Erwan) est testé, y compris en direct contre le vrai modèle (pas seulement en mode mocké — voir DURCISSEMENT.md). `client_disconnect` passe : l'annulation se fait en coupant directement la tâche `asyncio` qui porte l'appel fournisseur, pas via un watcher HTTP en polling. Un point de vigilance non couvert par cette suite (car non-déterministe) : DURCISSEMENT.md H20, un prompt hostile plus élaboré qui fait parfois échouer le format JSON de sortie même après réparation — sans fuite ni crash, mais pas encore fiable à 100 %.
 
 ## Comment c'est construit (pas une éval bidon)
 

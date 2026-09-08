@@ -69,12 +69,15 @@ def test_apres_quatre_outils_le_modele_est_force_de_finaliser():
 
     run = run_agent("Question", _corpus(), _scripted([tool, tool, tool, tool, final], captured))
 
-    assert run.answer.text == "Réponse finale."
     assert len(run.traces) == MAX_TOOL_ROUNDS
     assert "tools" not in captured[-1]
     assert "tool_choice" not in captured[-1]
     assert captured[-1]["max_tokens"] == 1_000
     assert "budget de recherche est epuise" in captured[-1]["system"]
+    # Le final ne cite aucune preuve valide : le texte est écarté, abstention serveur.
+    assert run.answer.status == "insufficient_evidence"
+    assert run.answer.citations == []
+    assert "preuves admissibles" in run.answer.text
 
 
 def test_requete_hostile_ne_revele_pas_de_secret():
@@ -108,12 +111,16 @@ def test_echec_tool_est_trace_et_le_modele_peut_repondre_proprement(monkeypatch)
             run = stop.value
             break
 
-    assert [event["type"] for event in received] == [
-        "agent_start", "tool_call", "tool_result", "text_delta", "done",
-    ]
+    types = [event["type"] for event in received]
+    assert types[:3] == ["agent_start", "tool_call", "tool_result"]
+    assert types[-1] == "done"
+    assert set(types[3:-1]) == {"text_delta"}
     assert received[2]["data"]["status"] == "error"
     assert "stack interne" not in json.dumps(received[2])
-    assert run.answer.text == "La recherche n'a pas pu être exécutée."
+    # Échec tool + aucune preuve valide : dégradation = abstention serveur, pas d'invention.
+    assert run.answer.status == "insufficient_evidence"
+    assert run.answer.citations == []
+    assert "preuves admissibles" in run.answer.text
 
 
 def test_agent_start_expose_run_id_corpus_et_timestamp(tmp_path, monkeypatch):
@@ -167,8 +174,11 @@ def test_reponse_finale_malformee_tentee_une_reparation():
             {"answer": "Réparée.", "used_chunk_ids": []})}]}
 
     run = run_agent("Question", _corpus(), client)
-    assert run.answer.text == "Réparée."
+    # Réparation tentée (2e appel sans outil) mais sans preuve valide : abstention serveur.
+    assert len(seen) == 2
     assert "tools" not in seen[1] and "tool_choice" not in seen[1]
+    assert run.answer.status == "insufficient_evidence"
+    assert "preuves admissibles" in run.answer.text
 
 
 def test_reparation_impossible_echoue_proprement():

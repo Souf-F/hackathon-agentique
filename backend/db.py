@@ -82,7 +82,15 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at  TEXT NOT NULL,
     finished_at TEXT,
     status      TEXT NOT NULL,
-    failure_code TEXT
+    failure_code TEXT,
+    answer_status TEXT,
+    confidence_level TEXT,
+    model_calls INTEGER,
+    tool_calls INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    estimated_cost_usd REAL,
+    duration_ms INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_corpus ON chunks(corpus_id, quarantined);
@@ -162,6 +170,14 @@ def init_db(create: bool = True) -> None:
         for statement in (
             "ALTER TABLE tool_calls ADD COLUMN run_id TEXT",
             "ALTER TABLE queries ADD COLUMN run_id TEXT",
+            "ALTER TABLE runs ADD COLUMN answer_status TEXT",
+            "ALTER TABLE runs ADD COLUMN confidence_level TEXT",
+            "ALTER TABLE runs ADD COLUMN model_calls INTEGER",
+            "ALTER TABLE runs ADD COLUMN tool_calls INTEGER",
+            "ALTER TABLE runs ADD COLUMN input_tokens INTEGER",
+            "ALTER TABLE runs ADD COLUMN output_tokens INTEGER",
+            "ALTER TABLE runs ADD COLUMN estimated_cost_usd REAL",
+            "ALTER TABLE runs ADD COLUMN duration_ms INTEGER",
         ):
             try:
                 conn.execute(statement)

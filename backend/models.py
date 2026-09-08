@@ -110,37 +110,30 @@ class SourceRef:
 
 
 @dataclass
-class Confidence:
-    """Confiance de grounding de la réponse — jamais celle déclarée par le
-    modèle sur lui-même (pas de calibration probabiliste réelle disponible).
-    Calculée par le code à partir du nombre de passages/documents réellement
-    cités, cf. `agent._confidence_for`. À ne jamais confondre avec le score
-    du détecteur d'injection (`InjectionVerdict.confidence`), qui porte sur
-    un passage, pas sur la véracité de la réponse."""
-
-    level: Literal["high", "medium", "low", "none", "n/a"]
-    reason: str
-
-
-@dataclass
-class Metrics:
-    """Coût et volume d'un run. `estimated_cost_usd` vaut `None` si le
-    modèle n'a pas de tarif connu — jamais arrondi à 0."""
-
-    model: str
-    model_calls: int
-    tool_calls: int
-    input_tokens: int
-    output_tokens: int
-    duration_ms: int
-    estimated_cost_usd: float | None
-
-
-@dataclass
 class Answer:
     text: str
     citations: list[SourceRef]
     mode: str  # "llm" | "extractive"
-    status: Literal["answered", "insufficient_evidence", "refused"] = "answered"
-    confidence: Confidence | None = None
-    metrics: Metrics | None = None
+    status: str = "answered"  # "answered" | "insufficient_evidence" | "refused"
+    confidence: dict = field(default_factory=lambda: {"level": "n/a", "reason": "non évalué"})
+
+
+def grounding_confidence(status: str, n_refs: int, n_docs: int, had_tool_error: bool) -> dict:
+    """Confiance déterministe issue du niveau de preuve, jamais du LLM.
+
+    Ce score représente le niveau de preuve validée structurellement, pas la
+    probabilité que le monde réel soit vrai. Conservateur par construction :
+    aucune confiance auto-déclarée par le modèle n'est utilisée.
+    """
+    if status == "refused":
+        return {"level": "n/a", "reason": "demande refusée, aucune affirmation produite"}
+    if status == "insufficient_evidence" or n_refs <= 0:
+        return {"level": "none", "reason": "aucune preuve admissible validée"}
+    passage = "1 passage admissible validé" if n_refs == 1 else f"{n_refs} passages admissibles validés"
+    if had_tool_error:
+        return {"level": "low",
+                "reason": f"{passage} mais un appel de recherche a échoué"}
+    if n_docs >= 2:
+        return {"level": "high",
+                "reason": f"{passage} dans {n_docs} documents"}
+    return {"level": "medium", "reason": f"{passage} dans 1 document"}
