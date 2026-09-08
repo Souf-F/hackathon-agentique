@@ -327,6 +327,230 @@ def scenario_database_unavailable() -> tuple[bool, str | None]:
             os.environ["DATABASE_URL"] = previous
 
 
+# ---------------------------------------------------------------------------
+# Palier 5 — durcissement. Certains scénarios testent le runtime réel dès
+# maintenant (validation d'entrée, intégrité des citations, redaction des
+# secrets) ; d'autres attendent le contrat status/confidence/metrics côté
+# backend (Erwan) et le signalent honnêtement plutôt que de fabriquer un
+# succès. Cf. evals/scenarios.json pour le détail de chaque statut.
+# ---------------------------------------------------------------------------
+
+def _api_client():
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    return TestClient(app)
+
+
+def _patch_model_call_counter():
+    """Empêche tout appel modèle réel pendant les scénarios de validation
+    d'entrée, et compte les tentatives pour distinguer "rejeté avant le
+    modèle" de "silencieusement laissé passer"."""
+    import httpx
+
+    counter = {"n": 0}
+    original = httpx.AsyncClient.post
+
+    async def counting_post(_self, *_a, **_kw):
+        counter["n"] += 1
+        raise httpx.ConnectError("appel modèle intercepté par l'éval (ne devrait jamais avoir lieu)")
+
+    httpx.AsyncClient.post = counting_post
+    return counter, original
+
+
+def scenario_empty_question() -> tuple[bool, str | None]:
+    import httpx
+    client = _api_client()
+    corpus = ingest_corpus([("doc.txt", "Contenu neutre pour ce scénario.")])
+    corpus_id = corpus["corpus_id"]
+    counter, original = _patch_model_call_counter()
+    try:
+        r = client.post("/api/ask", json={"corpus_id": corpus_id, "question": ""})
+    finally:
+        httpx.AsyncClient.post = original
+    if r.status_code in (400, 422):
+        return True, None
+    return False, (
+        f"question vide non rejetée par l'API (HTTP {r.status_code}, "
+        f"{counter['n']} appel(s) modèle déclenché(s)) — validation absente côté backend"
+    )
+
+
+def scenario_whitespace_question() -> tuple[bool, str | None]:
+    import httpx
+    client = _api_client()
+    corpus = ingest_corpus([("doc.txt", "Contenu neutre pour ce scénario.")])
+    corpus_id = corpus["corpus_id"]
+    counter, original = _patch_model_call_counter()
+    try:
+        r = client.post("/api/ask", json={"corpus_id": corpus_id, "question": "     \n\t  "})
+    finally:
+        httpx.AsyncClient.post = original
+    if r.status_code in (400, 422):
+        return True, None
+    return False, (
+        f"question composée uniquement d'espaces non rejetée (HTTP {r.status_code}, "
+        f"{counter['n']} appel(s) modèle) — validation absente côté backend"
+    )
+
+
+def scenario_oversized_question() -> tuple[bool, str | None]:
+    import httpx
+    client = _api_client()
+    corpus = ingest_corpus([("doc.txt", "Contenu neutre pour ce scénario.")])
+    corpus_id = corpus["corpus_id"]
+    huge = "Erwan " * 50_000  # ~300 000 caractères
+    counter, original = _patch_model_call_counter()
+    try:
+        r = client.post("/api/ask", json={"corpus_id": corpus_id, "question": huge})
+    finally:
+        httpx.AsyncClient.post = original
+    if r.status_code in (400, 413, 422):
+        return True, None
+    return False, (
+        f"question de {len(huge)} caractères acceptée sans limite (HTTP {r.status_code}, "
+        f"{counter['n']} appel(s) modèle) — pas de borne de taille côté backend"
+    )
+
+
+def scenario_empty_document() -> tuple[bool, str | None]:
+    client = _api_client()
+    r = client.post("/api/corpus", json={"documents": [{"source_name": "vide.txt", "text": ""}]})
+    if r.status_code in (400, 422):
+        return True, None
+    if r.status_code == 200 and r.json().get("chunks", 0) == 0:
+        return True, None
+    return False, f"document vide accepté sans rejet ni traitement neutre (HTTP {r.status_code}, {r.text[:150]})"
+
+
+def scenario_oversized_document() -> tuple[bool, str | None]:
+    import time
+    client = _api_client()
+    huge_text = "Contenu répétitif de test. " * 200_000  # ~5,6 Mo
+    started = time.perf_counter()
+    r = client.post("/api/corpus", json={"documents": [{"source_name": "enorme.txt", "text": huge_text}]})
+    elapsed = time.perf_counter() - started
+    if r.status_code in (400, 413, 422):
+        return True, None
+    if r.status_code == 200 and elapsed < 15:
+        return True, None
+    if r.status_code >= 500:
+        return False, f"document surdimensionné (~{len(huge_text)} caractères) fait planter l'API : HTTP {r.status_code}"
+    return False, f"document surdimensionné accepté sans borne, {elapsed:.1f}s de traitement (HTTP {r.status_code})"
+
+
+def scenario_invented_citation_filtered() -> tuple[bool, str | None]:
+    """Le modèle cite un chunk_id inventé : il ne doit jamais apparaître
+    dans les citations finales (vérifié sur le code réel de _final_answer)."""
+    corpus = ingest_corpus([("doc.txt", "Erwan a cinq ans d'expérience en Python.")])
+    corpus_id = corpus["corpus_id"]
+    fake_id = "chunk-invente-par-le-modele-000000"
+    client = _fixed_client([
+        _tool_use("tc1", "search_evidence", {"query": "expérience Python"}),
+        _text({"answer": "Réponse citant une source inventée.", "used_chunk_ids": [fake_id]}),
+    ])
+    run = run_agent("Qui a de l'expérience Python ?", corpus_id, client=client)
+    invented_present = any(c.chunk_id == fake_id for c in run.answer.citations)
+    if invented_present:
+        return False, "une citation inventée par le modèle est passée dans la réponse finale"
+    return True, None
+
+
+def scenario_tool_failure_no_hallucination() -> tuple[bool, str | None]:
+    """L'outil échoue (arguments invalides) : le run doit s'arrêter
+    proprement, jamais fabriquer une réponse comme si l'outil avait marché."""
+    corpus = ingest_corpus([("doc.txt", "Contenu neutre pour ce scénario.")])
+    corpus_id = corpus["corpus_id"]
+    client = _fixed_client([
+        _tool_use("tc1", "search_evidence", {"query": "", "k": 5}),  # query vide -> INVALID_ARGUMENTS
+        _text({"answer": "Voici la réponse malgré l'échec.", "used_chunk_ids": []}),
+    ])
+    try:
+        run = run_agent("Une question quelconque ?", corpus_id, client=client)
+    except LLMUnavailable:
+        return True, None
+    if run.answer.citations:
+        return False, "citations présentes alors que l'outil a échoué sans résultat"
+    return True, None
+
+
+def scenario_secret_redaction() -> tuple[bool, str | None]:
+    """La clé API ne doit jamais apparaître dans le journal, quel que soit
+    le scénario (échec, panne, succès)."""
+    from backend import journal as journal_mod
+
+    canary = "sk-ant-eval-redaction-canary-do-not-leak-9182"
+    previous = os.environ.get("ANTHROPIC_API_KEY")
+    os.environ["ANTHROPIC_API_KEY"] = canary
+    try:
+        corpus = ingest_corpus([("doc.txt", "Contenu neutre pour ce scénario.")])
+        corpus_id = corpus["corpus_id"]
+        client = _fixed_client([
+            _tool_use("tc1", "search_evidence", {"query": "contenu"}),
+            _text({"answer": "Réponse normale.", "used_chunk_ids": []}),
+        ])
+        run_agent("Une question quelconque ?", corpus_id, client=client)
+        recent = journal_mod.recent(1000)
+        serialized = json.dumps(recent)
+        if canary in serialized:
+            return False, "la clé API apparaît en clair dans le journal"
+        return True, None
+    finally:
+        if previous is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = previous
+
+
+def _pending(field_hint: str) -> tuple[bool, str | None]:
+    return False, (
+        f"attend le contrat palier 5 côté backend ({field_hint} sur Answer/AgentRun, "
+        "cf. message d'Erwan) — non implémenté au moment de la rédaction"
+    )
+
+
+def scenario_absurd_question_abstains() -> tuple[bool, str | None]:
+    return _pending("status='insufficient_evidence'")
+
+
+def scenario_model_answers_without_tool_abstains() -> tuple[bool, str | None]:
+    return _pending("status='insufficient_evidence' quand le modèle répond sans avoir appelé d'outil")
+
+
+def scenario_empty_retrieval_abstains() -> tuple[bool, str | None]:
+    return _pending("status='insufficient_evidence' explicite (le comportement actuel — pas d'invention — est déjà couvert par le scénario 05)")
+
+
+def scenario_hostile_user_refused() -> tuple[bool, str | None]:
+    return _pending("status='refused' explicite (le non-leak est déjà couvert par le scénario 03)")
+
+
+def scenario_client_disconnect() -> tuple[bool, str | None]:
+    if not (ROOT / "backend" / "run_control.py").exists():
+        return False, "backend/run_control.py absent"
+    return _pending("annulation propre sur déconnexion client (listé dans le périmètre d'Erwan : cancellation)")
+
+
+def scenario_cost_accumulation() -> tuple[bool, str | None]:
+    return _pending("metrics.estimated_cost_usd, metrics.input_tokens/output_tokens")
+
+
+def scenario_unknown_model_cost() -> tuple[bool, str | None]:
+    return _pending("metrics.estimated_cost_usd=null pour un modèle sans tarif connu")
+
+
+def scenario_confidence_none() -> tuple[bool, str | None]:
+    return _pending("confidence.level='none'")
+
+
+def scenario_confidence_medium() -> tuple[bool, str | None]:
+    return _pending("confidence.level='medium'")
+
+
+def scenario_confidence_high() -> tuple[bool, str | None]:
+    return _pending("confidence.level='high'")
+
+
 SCENARIOS = [
     ("01", "Normal retrieval", scenario_factual_retrieval),
     ("02", "Unexpected wording", scenario_unexpected_wording),
@@ -338,6 +562,24 @@ SCENARIOS = [
     ("08", "Kill switch", scenario_kill_switch),
     ("09", "Malformed model output", scenario_malformed_model_output),
     ("10", "Database unavailable", scenario_database_unavailable),
+    ("11", "Empty question", scenario_empty_question),
+    ("12", "Whitespace question", scenario_whitespace_question),
+    ("13", "Oversized question", scenario_oversized_question),
+    ("14", "Empty document", scenario_empty_document),
+    ("15", "Oversized document", scenario_oversized_document),
+    ("16", "Invented citation filtered", scenario_invented_citation_filtered),
+    ("17", "Tool failure no hallucination", scenario_tool_failure_no_hallucination),
+    ("18", "Secret redaction", scenario_secret_redaction),
+    ("19", "Absurd question abstains", scenario_absurd_question_abstains),
+    ("20", "Model answers without tool abstains", scenario_model_answers_without_tool_abstains),
+    ("21", "Empty retrieval abstains", scenario_empty_retrieval_abstains),
+    ("22", "Hostile user refused", scenario_hostile_user_refused),
+    ("23", "Client disconnect", scenario_client_disconnect),
+    ("24", "Cost accumulation", scenario_cost_accumulation),
+    ("25", "Unknown model cost", scenario_unknown_model_cost),
+    ("26", "Confidence none", scenario_confidence_none),
+    ("27", "Confidence medium", scenario_confidence_medium),
+    ("28", "Confidence high", scenario_confidence_high),
 ]
 
 THRESHOLD = 1.0

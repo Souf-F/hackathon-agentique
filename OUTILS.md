@@ -2,7 +2,7 @@
 
 Liste des outils et fonctions de l'agent, chacun avec nom, signature typée et effet de bord. Référencé depuis AGENTS.md.
 
-État : palier 4. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : contrat palier 4, backend pas encore livré au moment de la rédaction.
+État : palier 5. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : `stop_run` (palier 4) est livré et vérifié en direct, plus un contrat. Le contrat encore ouvert au palier 5 : aucun nouvel outil LLM, seulement des champs supplémentaires (`status`, `confidence`, `metrics`) sur la réponse existante — voir AGENTS.md section 9 et DURCISSEMENT.md.
 
 ---
 
@@ -96,4 +96,4 @@ Ne pas mélanger deux catégories différentes :
 | Visible du modèle | Oui (schéma dans `tools`) | Non |
 | Effet de bord | Non (lecture seule) | Oui (change l'état du run) |
 
-**État au moment de la rédaction** : `backend/run_control.py` et l'endpoint `POST /api/runs/{run_id}/stop` ne sont pas encore livrés (Erwan, palier 4). Le frontend (`frontend/index.html`, bouton STOP) est construit contre ce contrat et gère explicitement l'absence de l'endpoint (message clair à l'utilisateur, aucun crash, aucune simulation côté client d'un arrêt qui n'aurait pas vraiment eu lieu côté serveur).
+**État** : `backend/run_control.py` et l'endpoint `POST /api/runs/{run_id}/stop` sont livrés et vérifiés en direct (cycle `running → stop_requested → stopped`, aucun appel d'outil après la demande d'arrêt). Le frontend garde sa gestion défensive de l'endpoint absent — utile si un déploiement tourne temporairement sur un backend plus ancien, pas parce que l'endpoint manquerait aujourd'hui.

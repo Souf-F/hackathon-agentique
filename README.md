@@ -25,7 +25,7 @@ La protection qui compte est dans le code et le schéma de données, pas dans le
 
 ```bash
 git clone https://github.com/Souf-F/hackathon-agentique.git && cd hackathon-agentique
-cp .env.example .env      # renseigner ANTHROPIC_API_KEY (optionnel : sans clé, mode extractif)
+cp .env.example .env      # renseigner ANTHROPIC_API_KEY
 
 python3 -m venv backend/.venv && source backend/.venv/bin/activate
 pip install -r backend/requirements.txt
@@ -100,7 +100,8 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 - Détection optimisée pour le français et l'anglais.
 - Un seul outil réellement câblé pour l'agent (`search_evidence`) ; `inspect_document` existe mais n'est pas exposé au modèle.
 - Une instruction hors du périmètre de l'agent (ex. "supprime ce document") ne produit pas toujours un refus lisible : si la réponse du modèle ne suit pas le format JSON strict attendu, elle remonte comme une erreur technique (502) plutôt qu'un message clair à l'utilisateur.
-- **Palier 4 en cours** : le frontend (bouton STOP, onglet Journal, gestion `resource_unavailable`) et le bonus éval automatisée (`evals/`, 8/10) sont livrés. Le backend correspondant (`run_id`, endpoints `/api/runs/{id}/stop` et `/api/runs/{id}/journal`, journal persistant) n'est pas encore fusionné au moment de la rédaction — voir AGENTS.md section 9 pour le détail de ce qui est livré ou non.
+- **Palier 4 livré et vérifié** : kill switch, journal persistant, gestion `resource_unavailable` (réseau, clé API absente, base supprimée, kill de processus) — testés en direct, pas seulement en théorie. Sans clé API configurée, l'agent renvoie une erreur explicite (`resource_unavailable`), il ne bascule plus vers une réponse dégradée silencieuse.
+- **Palier 5 en cours** : `status`/`confidence`/`metrics` (coût, tokens) sur la réponse ne sont pas encore ajoutés côté backend au moment de la rédaction — le frontend et l'éval sont construits contre ce contrat. Voir DURCISSEMENT.md pour l'état précis, scénario par scénario.
 
 ---
 
@@ -113,6 +114,7 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 | `AGENTS.md` | Rôle de l'agent, hiérarchie des instructions, boucle, prompts |
 | `OUTILS.md` | Outils du modèle et fonctions du pipeline, signatures typées |
 | `JOURNAL.md` | Travail avec les outils d'IA |
+| `DURCISSEMENT.md` | Tentatives de casse volontaires, attendu vs observé, palier 5 |
 
 ---
 
