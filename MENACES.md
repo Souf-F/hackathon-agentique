@@ -201,3 +201,21 @@ La protection qui compte est imposée par le code et le schéma de données. Le 
 ## 13. Limites assumées
 
 Nous ne garantissons ni zéro faux positif, ni zéro faux négatif, ni la véracité du corpus, ni la couverture des techniques futures. Nous nous engageons sur une frontière donnée/instruction explicite, structurelle, observable, testable et auditable.
+
+---
+
+## 14. Menaces palier 4 — exécution longue, arrêt, journal
+
+Nouvelles surfaces introduites par le run lifecycle, le kill switch et le journal. Pour chacune : mitigation réelle, et limite réelle plutôt qu'une promesse vague.
+
+| # | Menace | Mitigation réelle | Limite réelle |
+|---|---|---|---|
+| T12 | Disparition du fournisseur (API Anthropic inaccessible) | `LLMUnavailable` capturée (`backend/agent.py`), remontée en erreur explicite plutôt qu'un crash ou une réponse inventée | Le palier 3 la traduit en 502 générique ; le palier 4 doit la traduire en `resource_unavailable` explicite côté stream — pas encore livré au moment de la rédaction |
+| T13 | Perte réseau en cours de run | Idem T12, même mécanisme (`httpx.ConnectError` → `LLMUnavailable`) | Un run interrompu au milieu d'un appel outil doit rester reconstituable depuis le journal — dépend du journal persistant, pas encore livré |
+| T14 | Perte ou absence de credential (`ANTHROPIC_API_KEY`) | `os.environ["ANTHROPIC_API_KEY"]` lève une `KeyError` capturée en `LLMUnavailable("ANTHROPIC_API_KEY manquante")` | Incident réel rencontré durant ce hackathon (cf. JOURNAL.md) : le message d'erreur générique ne distinguait pas "clé absente de la config" d'une autre panne — diagnostic plus lent que nécessaire. Le palier 4 vise à rendre ce cas explicite (`resource_unavailable`, code identifiable) |
+| T15 | Base de données indisponible | Aucune pour l'instant | Pas de gestion dédiée ; `backend/journal.py` (palier 4) doit couvrir ce cas — non livré au moment de la rédaction |
+| T16 | Process interrompu (crash, kill, supervision) | Aucune côté frontend | Dépend d'un superviseur de processus éventuel côté backend, optionnel au palier 4, non confirmé livré |
+| T17 | Arrêt concurrent (double clic STOP, deux arrêts simultanés) | Idempotence côté frontend : un `stopRequested` déjà vrai rend le second clic sans effet, le bouton est désactivé pendant `stop_requested` | Ne couvre que le client qui a initié le clic ; deux clients différents demandant l'arrêt du même run simultanément dépendent de l'idempotence réelle de l'endpoint côté serveur, à vérifier une fois livré |
+| T18 | Journal partiel ou corrompu | Le stream et le journal sont deux sources distinctes (`agent_events` en temps réel, `GET /api/runs/{id}/journal` en source de vérité après coup) — si l'une est incomplète, l'autre peut recouper | Aucune vérification d'intégrité (checksum, écriture atomique) prévue à ce stade |
+| T19 | Reprise silencieuse après panne | Principe explicite : un run `failed` ou `stopped` n'est jamais relancé automatiquement sans action de l'opérateur (cf. AGENTS.md section 9) | Principe documenté, pas encore vérifiable en pratique tant que le backend palier 4 n'est pas livré |
+| T20 | Fuite de secrets dans les logs / le journal | Le journal affiche uniquement type d'événement, statut, détails fonctionnels — jamais de clé API, header, ni stack trace brute (contrainte explicite du frontend, cf. `renderJournal`) | Ne protège que l'affichage ; si le backend écrit un secret dans le fichier journal lui-même, le frontend ne peut pas le savoir ni le censurer après coup |

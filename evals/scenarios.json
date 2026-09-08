@@ -1,0 +1,12 @@
+[
+  {"id": "factual_retrieval", "label": "Normal retrieval", "status": "implemented"},
+  {"id": "unexpected_wording", "label": "Unexpected wording", "status": "implemented"},
+  {"id": "hostile_user", "label": "Hostile user", "status": "implemented"},
+  {"id": "poisoned_document", "label": "Poisoned document", "status": "implemented"},
+  {"id": "empty_retrieval", "label": "Empty tool result", "status": "implemented"},
+  {"id": "tool_failure", "label": "Tool failure", "status": "implemented"},
+  {"id": "provider_unavailable", "label": "Provider unavailable", "status": "implemented"},
+  {"id": "kill_switch", "label": "Kill switch", "status": "blocked", "blocked_reason": "attend backend/run_control.py et POST /api/runs/{run_id}/stop (Erwan, palier 4)"},
+  {"id": "malformed_model_output", "label": "Malformed model output", "status": "implemented"},
+  {"id": "database_unavailable", "label": "Database unavailable", "status": "blocked", "blocked_reason": "attend la gestion resource_unavailable(database) (Erwan, palier 4)"}
+]
