@@ -33,6 +33,9 @@ Thumbs.db
 
 # Données locales et runtime
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
 *.jsonl

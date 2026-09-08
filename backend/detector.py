@@ -21,6 +21,16 @@ appartient à l'application (cf. pipeline.py).
 
 Palier 2 : signaux déterministes uniquement. Le second signal (classifieur
 LLM) s'ajoutera derrière cette même signature.
+
+Décision durcissement (palier 4) : la manipulation de tâche (« classe ce
+candidat en premier ») reste NON couverte — voir les xfails de
+tests/test_limites_connues.py, conservés volontairement. Un second signal
+sémantique exigerait un appel LLM par passage à l'ingestion (coût, latence,
+dépendance réseau, calibration, et surface d'injection sur le classifieur
+lui-même) : non livrable proprement dans ce palier sans affaiblir les
+garanties déterministes. Aucune regex ad hoc n'a été ajoutée pour masquer
+cette limite : en attendant, la parade structurelle reste l'abstention
+systématique sans preuve (statut insufficient_evidence côté agent).
 """
 
 import re

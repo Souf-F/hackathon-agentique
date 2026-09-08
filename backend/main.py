@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 load_dotenv()
 
@@ -30,6 +30,7 @@ from .display import (  # noqa: E402
     document_preview, document_report, resolve_source_names, security_summary,
 )
 from .errors import ResourceUnavailable, RunStopped  # noqa: E402
+from .metrics import unavailable as unavailable_metrics  # noqa: E402
 from .pipeline import ingest_corpus  # noqa: E402
 from .tools import inspect_document  # noqa: E402
 
@@ -64,19 +65,73 @@ app = FastAPI(title="La Taupe", version="0.3.0", lifespan=lifespan)
 init_db()
 
 
+MAX_QUESTION_CHARS = 2000
+MAX_CORPUS_ID_CHARS = 128
+MAX_SOURCE_NAME_CHARS = 255
+MAX_DOCUMENTS_PER_UPLOAD = 20
+MAX_DOCUMENT_BYTES = 1024 * 1024
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
 class DocumentIn(BaseModel):
     source_name: str
     text: str
+
+    @field_validator("source_name")
+    @classmethod
+    def _source_name(cls, v: object) -> str:
+        name = v.strip() if isinstance(v, str) else ""
+        if not name or len(name) > MAX_SOURCE_NAME_CHARS:
+            raise ValueError("source_name doit contenir entre 1 et 255 caractères")
+        return name
+
+    @field_validator("text")
+    @classmethod
+    def _text(cls, v: object) -> str:
+        text = v.strip() if isinstance(v, str) else ""
+        if not text:
+            raise ValueError("document vide refusé")
+        if len(text.encode("utf-8")) > MAX_DOCUMENT_BYTES:
+            raise ValueError("document trop volumineux (max 1 MiB)")
+        return text
 
 
 class IngestIn(BaseModel):
     documents: list[DocumentIn]
 
+    @field_validator("documents")
+    @classmethod
+    def _documents(cls, v: object) -> list[DocumentIn]:
+        docs = v if isinstance(v, list) else []
+        if not docs:
+            return docs
+        if len(docs) > MAX_DOCUMENTS_PER_UPLOAD:
+            raise ValueError("trop de documents (max 20 par upload)")
+        total = sum(len(d.text.encode("utf-8")) for d in docs)
+        if total > MAX_UPLOAD_BYTES:
+            raise ValueError("upload trop volumineux (max 5 MiB)")
+        return docs
+
 
 class AskIn(BaseModel):
     corpus_id: str
     question: str
-    k: int = 5
+
+    @field_validator("corpus_id")
+    @classmethod
+    def _corpus_id(cls, v: object) -> str:
+        cid = v.strip() if isinstance(v, str) else ""
+        if not cid or len(cid) > MAX_CORPUS_ID_CHARS:
+            raise ValueError("corpus_id doit contenir entre 1 et 128 caractères")
+        return cid
+
+    @field_validator("question")
+    @classmethod
+    def _question(cls, v: object) -> str:
+        question = v.strip() if isinstance(v, str) else ""
+        if not question or len(question) > MAX_QUESTION_CHARS:
+            raise ValueError("question doit contenir entre 1 et 2000 caractères")
+        return question
 
 
 @app.get("/api/health")
@@ -217,10 +272,16 @@ async def ask(payload: AskIn) -> dict:
         names = resolve_source_names([c.chunk_id for c in answer.citations])
     except ResourceUnavailable as exc:
         raise HTTPException(503, exc.public_message) from exc
+    metrics = getattr(run, "metrics", None) or unavailable_metrics()
+    if not isinstance(metrics, dict):
+        metrics = unavailable_metrics()
     return {
         "run_id": run_id,
         "answer": answer.text,
         "mode": answer.mode,
+        "status": answer.status,
+        "confidence": answer.confidence,
+        "metrics": metrics,
         "citations": [
             {**asdict(c), "source_name": names.get(c.chunk_id, "")}
             for c in answer.citations
@@ -292,13 +353,6 @@ def run_journal(run_id: str) -> dict:
     if not events:
         raise HTTPException(404, f"run inconnu : {run_id}")
     return {"run_id": run_id, "events": events}
-
-
-@app.get("/api/journal/recent")
-def journal_recent(limit: int = Query(default=100)) -> dict:
-    """Derniers événements tous runs. Limite bornée, lecture seule."""
-    events = journal_mod.recent(limit)
-    return {"events": events, "count": len(events)}
 
 
 @app.get("/api/corpus/{corpus_id}/report")

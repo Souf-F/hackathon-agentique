@@ -114,3 +114,26 @@ class Answer:
     text: str
     citations: list[SourceRef]
     mode: str  # "llm" | "extractive"
+    status: str = "answered"  # "answered" | "insufficient_evidence" | "refused"
+    confidence: dict = field(default_factory=lambda: {"level": "n/a", "reason": "non évalué"})
+
+
+def grounding_confidence(status: str, n_refs: int, n_docs: int, had_tool_error: bool) -> dict:
+    """Confiance déterministe issue du niveau de preuve, jamais du LLM.
+
+    Ce score représente le niveau de preuve validée structurellement, pas la
+    probabilité que le monde réel soit vrai. Conservateur par construction :
+    aucune confiance auto-déclarée par le modèle n'est utilisée.
+    """
+    if status == "refused":
+        return {"level": "n/a", "reason": "demande refusée, aucune affirmation produite"}
+    if status == "insufficient_evidence" or n_refs <= 0:
+        return {"level": "none", "reason": "aucune preuve admissible validée"}
+    passage = "1 passage admissible validé" if n_refs == 1 else f"{n_refs} passages admissibles validés"
+    if had_tool_error:
+        return {"level": "low",
+                "reason": f"{passage} mais un appel de recherche a échoué"}
+    if n_docs >= 2:
+        return {"level": "high",
+                "reason": f"{passage} dans {n_docs} documents"}
+    return {"level": "medium", "reason": f"{passage} dans 1 document"}
