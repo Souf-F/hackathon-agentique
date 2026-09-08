@@ -35,6 +35,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+*.jsonl
 data/index/
 data/cache/
 uploads/
