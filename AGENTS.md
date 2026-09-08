@@ -1,6 +1,6 @@
 # AGENTS — La Taupe
 
-État : palier 4. Les sections 1 à 8 décrivent la boucle réelle du palier 3 (`backend/agent.py`), inchangée. La section 9 décrit le **contrat** du palier 4 (run lifecycle, kill switch, journal) — le frontend qui le consomme est construit et poussé, le backend correspondant (`run_id`, endpoints `/api/runs/*`, journal persistant) est en cours côté Erwan et pas encore fusionné au moment de la rédaction. Ce qui est marqué « livré » est vérifié ; ce qui est marqué « contrat, pas encore backend » ne l'est pas — ne pas prétendre le contraire à l'oral.
+État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4) est entièrement livrée et vérifiée en direct — ce n'est plus un contrat. Le contrat encore ouvert est celui du palier 5 (`status`, `confidence`, `metrics`), détaillé en fin de section 9 et dans DURCISSEMENT.md. Ce qui est marqué « livré » est vérifié ; ce qui est marqué « contrat, pas encore backend » ne l'est pas — ne pas prétendre le contraire à l'oral.
 
 ---
 
@@ -157,13 +157,17 @@ Chaque événement de la boucle (démarrage, appel d'outil, résultat, panne, ar
 
 Quand une ressource externe (API du modèle, base de données) devient indisponible en cours de run, l'événement `resource_unavailable` est émis avec un horodatage fourni par le serveur. Principe non négociable côté frontend : **la trace déjà affichée (les appels d'outils réussis avant la panne) n'est jamais effacée** — la panne s'ajoute à ce qui a déjà eu lieu, elle ne le remplace pas. Voir le bug corrigé en ce sens dans le frontend (`askQuestionStream`, palier 4).
 
-### Ce qui est livré vs ce qui ne l'est pas encore
+### Ce qui est livré (palier 4, vérifié — plus une hypothèse)
 
 | Composant | État |
 |---|---|
 | Boucle agentique, outil `search_evidence` (palier 3) | Livré, testé |
-| Frontend : bouton STOP, onglet Journal, bandeau `resource_unavailable` | Livré, construit contre le contrat, testé en dégradation gracieuse (endpoints absents → message clair, pas de crash) |
-| Backend : `run_id`, endpoints `/api/runs/{id}/stop` et `/api/runs/{id}/journal`, journal persistant, `backend/run_control.py`, `backend/journal.py` | Pas encore livré au moment de la rédaction (Erwan) |
+| Backend : `run_id`, `POST /api/runs/{id}/stop`, `GET /api/runs/{id}/journal`, `GET /api/journal/recent`, journal persistant (`backend/run_control.py`, `backend/journal.py`), superviseur de processus (`backend/supervisor.py`) | Livré et fusionné dans `dev`. Testé en direct : cycle `agent_start → stop_requested → stopped`, panne de clé API (`MISSING_CREDENTIAL`), suppression de la base pendant un run, kill du processus enfant sans redémarrage silencieux — tous confirmés avec de vrais horodatages serveur, pas simulés |
+| Frontend : bouton unique Envoyer/STOP, onglet Journal, bandeau `resource_unavailable` | Livré, testé contre le vrai backend |
+
+### Palier 5 — ce qui est encore un contrat, pas du code
+
+`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (tokens, appels, coût) sur `Answer` : pas encore ajoutés à `backend/models.py`/`backend/agent.py` au moment de la rédaction — voir DURCISSEMENT.md pour l'état précis, testé scénario par scénario plutôt qu'annoncé en bloc.
 
 ### Streaming et boucle d'outils conservés
 
