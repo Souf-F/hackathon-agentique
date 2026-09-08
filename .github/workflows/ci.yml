@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, dev_souf, dev_erwan]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Compile check
+        run: python -m compileall backend
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Automated eval (offline, no API key)
+        run: python evals/run_eval.py
