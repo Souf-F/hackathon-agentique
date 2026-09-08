@@ -2,7 +2,7 @@
 
 Liste des outils et fonctions de l'agent, chacun avec nom, signature typée et effet de bord. Référencé depuis AGENTS.md.
 
-État : palier 3, à jour avec le code réel (`backend/tool_runtime.py`, `backend/agent.py`).
+État : palier 4. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : contrat palier 4, backend pas encore livré au moment de la rédaction.
 
 ---
 
@@ -80,3 +80,20 @@ Appelées par l'application, jamais par le LLM.
 | Résolution des noms | `resolve_source_names(chunk_ids: list[str]) -> dict[str, str]` | Non — appliqué après génération, jamais avant |
 
 **Pourquoi cette séparation** : si le modèle pouvait appeler `quarantine_chunk` ou lire `document_preview`, la frontière de sécurité se trouverait à l'intérieur du composant probabiliste. Un outil d'agent est une action dont le LLM décide ; une fonction de pipeline est une action que l'architecture impose. La quarantaine et l'affichage humain appartiennent à la seconde catégorie.
+
+---
+
+## 4. Palier 4 — `stop_run` n'est pas un tool LLM
+
+Ne pas mélanger deux catégories différentes :
+
+- **`search_evidence`** : un tool au sens Anthropic — défini dans `tools=[...]`, le modèle voit sa description, décide de l'appeler ou non, avec quels arguments. C'est le seul de cette catégorie.
+- **`stop_run`** : une **opération de contrôle opérateur**, exposée comme endpoint API classique (`POST /api/runs/{run_id}/stop`), jamais présentée au modèle, jamais dans une liste `tools`. Le modèle ignore totalement son existence ; il ne peut ni l'appeler, ni la refuser, ni la contourner, puisqu'il n'y a même pas accès.
+
+| | `search_evidence` | `stop_run` |
+|---|---|---|
+| Qui décide de l'appeler | Le modèle (`tool_choice: auto`) | L'utilisateur, via l'interface |
+| Visible du modèle | Oui (schéma dans `tools`) | Non |
+| Effet de bord | Non (lecture seule) | Oui (change l'état du run) |
+
+**État au moment de la rédaction** : `backend/run_control.py` et l'endpoint `POST /api/runs/{run_id}/stop` ne sont pas encore livrés (Erwan, palier 4). Le frontend (`frontend/index.html`, bouton STOP) est construit contre ce contrat et gère explicitement l'absence de l'endpoint (message clair à l'utilisateur, aucun crash, aucune simulation côté client d'un arrêt qui n'aurait pas vraiment eu lieu côté serveur).

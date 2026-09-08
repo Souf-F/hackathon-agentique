@@ -123,3 +123,25 @@ Minimum requis : 5 entrées.
 **Bug local, pas du code** : un test échouait chez moi (`test_suppression_retire_document_et_evenements_associes`, 0 événement au lieu de 1) à cause d'un `INJECTION_CONFIDENCE_THRESHOLD=0.80` resté dans mon `.env` personnel depuis une session précédente, au lieu de `0.5`. Rien à voir avec le code d'Erwan — juste un rappel que l'environnement local peut mentir autant que le code.
 
 **Ce qu'on en retient** : tester avant le prof a permis de trouver le routage déguisé et le bug `k` avant le checkpoint plutôt que pendant. Mais on a aussi appris qu'un test qui échoue n'est pas automatiquement une régression du code partagé — vérifier son propre environnement d'abord évite d'accuser quelqu'un d'autre à tort.
+
+---
+
+## Entrée 8 — Palier 4 : l'incident de la clé absente, et pourquoi il justifie `resource_unavailable`
+
+**Date** : 8 septembre 2026 · **Participants** : Souf (frontend/éval/doc), Erwan (backend, en cours)
+
+**L'incident réel, factuellement** : au palier 2, `.env.example` déclarait une variable `LLM_API_KEY`, alors que le code (`backend/answer.py`) lisait `os.environ["ANTHROPIC_API_KEY"]` — un nom différent. La clé n'a jamais été « perdue » : elle était présente dans la configuration locale, mais sous un nom que le code ne reconnaissait pas, donc absente du point de vue de l'application. Le système ne plantait pas et ne remontait aucune erreur claire : il retombait silencieusement en mode « extractif » (réponse sans appel au modèle), un comportement volontaire du code pour ne pas planter sans clé — mais qui rendait le diagnostic difficile, puisque rien ne signalait que quelque chose manquait.
+
+**Ce que ça a révélé** : une erreur générique (ou, pire, une dégradation silencieuse sans erreur du tout) ne dit pas à l'opérateur *quoi* est cassé. On a dû tester un vrai appel LLM et observer `"mode": "extractive"` au lieu de `"mode": "llm"` pour s'en apercevoir — un signal qu'il fallait savoir interpréter, pas un message qui l'explique.
+
+**Pourquoi le palier 4 change ça** : le contrat `resource_unavailable` du palier 4 est conçu précisément pour ce genre de cas — transformer une ressource manquante (clé, réseau, base de données) en un événement explicite, horodaté par le backend, visible dans le stream et le journal, plutôt qu'un échec silencieux ou un message technique générique. C'est la même leçon que l'entrée 6 (deux chemins vers la même donnée, une seule barrière) appliquée à l'observabilité plutôt qu'à la sécurité : une panne qui ne se voit pas est une panne qu'on ne peut pas diagnostiquer.
+
+**Choix retenus pour le palier 4** (contrat convenu avec Erwan, backend en cours au moment de la rédaction) :
+- **`run_id`** : chaque exécution en a un, pour relier stream temps réel et journal après coup — sans identifiant, impossible de demander "que s'est-il passé sur CE run précis" une fois le stream terminé.
+- **Journal persistant plutôt que seulement le stream** : le stream est une vue en direct, perdue si la connexion coupe ; le journal (`GET /api/runs/{id}/journal`) reste la source de vérité consultable après coup, y compris après une panne qui aurait interrompu le stream lui-même.
+- **Kill switch en dehors de la boucle du modèle** : arrêter un run est une décision de l'opérateur, jamais un outil que le modèle pourrait s'auto-attribuer (cf. AGENTS.md section 9, OUTILS.md section 4).
+- **Éval automatisée** : plutôt que de découvrir les régressions au checkpoint, 10 scénarios rejouables en local et en CI, contre le vrai runtime (cf. `evals/README.md`).
+
+**Séparation du travail** : Erwan possède `backend/agent.py`, `backend/tool_runtime.py`, `backend/db.py`, et les nouveaux `backend/run_control.py`/`backend/journal.py`/`backend/supervisor.py` à venir. Souf possède le frontend (kill switch, onglet Journal, bandeau `resource_unavailable`), le bonus éval, la CI et cette documentation. Le frontend a été construit contre le contrat avant que le backend ne soit livré, avec dégradation explicite (message clair, pas de simulation) partout où l'endpoint correspondant n'existe pas encore — pour ne pas bloquer l'un sur l'autre, et pour que l'intégration réelle reste un test à faire, pas une hypothèse.
+
+**Ce qu'on en retient** : documenter une fonctionnalité avant qu'elle existe côté backend est une tentation — on a préféré marquer explicitement « contrat, pas encore livré » partout où c'était le cas (AGENTS.md, OUTILS.md, cette entrée) plutôt que de laisser croire que le palier 4 est fini alors que seule sa moitié frontend l'est.

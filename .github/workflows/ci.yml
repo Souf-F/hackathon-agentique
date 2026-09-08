@@ -23,7 +23,7 @@ jobs:
         run: python -m compileall backend
 
       - name: Tests
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Automated eval (offline, no API key)
         run: python evals/run_eval.py

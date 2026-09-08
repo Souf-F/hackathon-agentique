@@ -100,6 +100,7 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 - Détection optimisée pour le français et l'anglais.
 - Un seul outil réellement câblé pour l'agent (`search_evidence`) ; `inspect_document` existe mais n'est pas exposé au modèle.
 - Une instruction hors du périmètre de l'agent (ex. "supprime ce document") ne produit pas toujours un refus lisible : si la réponse du modèle ne suit pas le format JSON strict attendu, elle remonte comme une erreur technique (502) plutôt qu'un message clair à l'utilisateur.
+- **Palier 4 en cours** : le frontend (bouton STOP, onglet Journal, gestion `resource_unavailable`) et le bonus éval automatisée (`evals/`, 8/10) sont livrés. Le backend correspondant (`run_id`, endpoints `/api/runs/{id}/stop` et `/api/runs/{id}/journal`, journal persistant) n'est pas encore fusionné au moment de la rédaction — voir AGENTS.md section 9 pour le détail de ce qui est livré ou non.
 
 ---
 
