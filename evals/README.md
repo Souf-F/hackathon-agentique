@@ -12,9 +12,7 @@ Code de sortie `0` si tous les scénarios passent, `1` sinon. Le score et la rai
 
 ## État actuel
 
-**10/10** sur les scénarios des paliers 3-4 (tool-calling réel, kill switch, journal, `resource_unavailable`) — tous implémentés et vérifiés stables sur plusieurs exécutions consécutives.
-
-**Scénarios palier 5** (`empty_question`, `absurd_question_abstains`, `confidence_none`, `cost_accumulation`, etc.) : en attente du contrat backend (`status`, `confidence`, `metrics` sur `Answer`) — voir `scenarios.json` pour le détail de ce qui est prêt vs. pas encore. Le script détecte automatiquement leur disponibilité et se complète de lui-même une fois le contrat livré côté backend, sans modification nécessaire de `run_eval.py` autre que le remplacement du corps de chaque fonction bloquée.
+**27/28.** Le contrat palier 5 (`status`, `confidence`, `metrics` sur `Answer`) est livré et testé, y compris en direct contre le vrai modèle (pas seulement en mode mocké — voir DURCISSEMENT.md). Un seul scénario bloqué, honnêtement : `client_disconnect` a été tenté, testé en direct, et cause un run bloqué indéfiniment plutôt qu'un arrêt propre — retiré volontairement plutôt que livré cassé.
 
 ## Comment c'est construit (pas une éval bidon)
 

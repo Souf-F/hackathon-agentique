@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -64,9 +64,23 @@ app = FastAPI(title="La Taupe", version="0.3.0", lifespan=lifespan)
 init_db()
 
 
+# Palier 5 — durcissement : bornes réelles plutôt qu'aucune. Rejetées
+# avant tout appel modèle (validation Pydantic, jamais un round-trip
+# réseau inutile). Cf. DURCISSEMENT.md H01-H04 pour les gaps trouvés.
+MAX_QUESTION_CHARS = 4_000
+MAX_DOCUMENT_CHARS = 1_000_000
+
+
 class DocumentIn(BaseModel):
     source_name: str
-    text: str
+    text: str = Field(max_length=MAX_DOCUMENT_CHARS)
+
+    @field_validator("text")
+    @classmethod
+    def _text_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("le contenu du document est vide")
+        return v
 
 
 class IngestIn(BaseModel):
@@ -75,8 +89,15 @@ class IngestIn(BaseModel):
 
 class AskIn(BaseModel):
     corpus_id: str
-    question: str
+    question: str = Field(max_length=MAX_QUESTION_CHARS)
     k: int = 5
+
+    @field_validator("question")
+    @classmethod
+    def _question_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("la question est vide")
+        return v
 
 
 @app.get("/api/health")
@@ -221,6 +242,9 @@ async def ask(payload: AskIn) -> dict:
         "run_id": run_id,
         "answer": answer.text,
         "mode": answer.mode,
+        "status": answer.status,
+        "confidence": asdict(answer.confidence) if answer.confidence else None,
+        "metrics": asdict(answer.metrics) if answer.metrics else None,
         "citations": [
             {**asdict(c), "source_name": names.get(c.chunk_id, "")}
             for c in answer.citations

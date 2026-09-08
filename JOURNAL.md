@@ -165,3 +165,23 @@ Minimum requis : 5 entrées.
 - Échoué, réel : une question vide ou composée uniquement d'espaces atteint quand même une tentative d'appel modèle avant d'échouer (HTTP 503 au lieu d'un rejet net en amont) ; un document vide crée un chunk de corps fantôme plutôt que d'être rejeté ou traité comme réellement vide. Deux vrais gaps de validation d'entrée, pas des suppositions — trouvés en exécutant `evals/run_eval.py`, pas en les imaginant.
 
 **Décision prise après ces résultats** : ne pas coder une validation d'entrée concurrente côté frontend qui dupliquerait ce qu'Erwan doit faire côté API (son périmètre explicite : "validation API"). À la place, un garde-fou client léger (taille de fichier, nombre de fichiers, question vide) pour l'expérience utilisateur immédiate, et les deux gaps réels signalés dans DURCISSEMENT.md pour qu'ils se corrigent une fois, au bon endroit, plutôt que deux fois à des endroits différents.
+
+---
+
+## Entrée 10 — Palier 5 : le contrat backend livré côté Souf, et l'annulation qui a échoué en direct
+
+**Date** : 8 septembre 2026 · **Participants** : Souf (frontend/tests/doc/backend palier 5), Erwan (backend paliers 1-4)
+
+**Pourquoi Souf a codé du backend, hors périmètre habituel** : le contrat `status`/`confidence`/`metrics` documenté à l'entrée 9 restait un contrat, pas du code, alors que le frontend, l'éval et la doc étaient déjà construits contre lui. Plutôt que d'attendre, la décision a été de l'implémenter directement dans `backend/models.py`, `backend/agent.py` et `backend/main.py`, en respectant le contrat déjà convenu avec Erwan point par point, pour ne pas bloquer la vérification de tout ce qui en dépendait.
+
+**Ce qui a été ajouté, réellement testé** :
+- `Answer.status` (`answered`/`insufficient_evidence`/`refused`) — avec un garde-fou structurel dans `_final_answer` : si le modèle prétend `"answered"` mais que les citations sont vides après filtrage par `runtime.returned_chunk_ids`, le code rétrograde le statut en `insufficient_evidence` sans lui demander son avis. Le principe déjà appliqué à la citation individuelle (entrée 9) est ici étendu au statut global de la réponse.
+- `Answer.confidence` — `none`/`medium`/`high` calculé par le code à partir du nombre de passages et de documents distincts réellement cités, jamais une auto-évaluation du modèle (raison documentée à l'entrée 9, maintenant en code).
+- `Answer.metrics` — tokens, appels modèle, appels outils, durée, coût — accumulés réellement à chaque appel Anthropic dans la boucle (`aagent_events`), pas recalculés après coup.
+- Validation d'entrée : `Field(max_length=...)` + `field_validator` sur `AskIn.question` (4000 caractères) et `DocumentIn.text` (1 000 000 caractères, rejet si vide/espaces), corrigeant les deux gaps H01-H04 trouvés à l'entrée 9.
+
+**Vérifié en direct contre le vrai modèle**, pas seulement en mocké : un vrai appel a produit `{"status":"answered","confidence":{"level":"medium","reason":"3 passages admissibles dans 1 document"},"metrics":{"model":"claude-sonnet-5","model_calls":3,"tool_calls":3,"input_tokens":5770,"output_tokens":483,"duration_ms":7138,"estimated_cost_usd":0.024555}}`. Détail complet scénario par scénario dans DURCISSEMENT.md (H01-H18, tous ✅).
+
+**Ce qui a été tenté et a échoué, en direct** : l'annulation propre sur déconnexion client (H19). Un watcher `asyncio` sur `request.is_disconnected()` dans `ask_stream()`, branché sur `run_control.request_stop`. Testé avec une vraie coupure réseau (curl avec un timeout court, connexion abandonnée) : le run ne s'arrête pas, il reste bloqué à `model_request_started` sans plus jamais progresser — confirmé sur plus de 50 secondes, en repollant le journal réel. Un blocage indéfini est pire qu'une absence de gestion. La décision a été de retirer complètement le changement (vérifié par `pytest -q` après coup) plutôt que de le livrer cassé, et de documenter honnêtement l'échec dans DURCISSEMENT.md, `evals/scenarios.json` et le score d'éval (27/28, jamais annoncé 28/28).
+
+**Ce qu'on en retient** : la même règle que l'entrée 8 ("un contrat non livré doit être marqué comme tel, pas comme fini") s'applique symétriquement à l'échec — un test qui casse en direct doit rester visible comme un échec réel, même après avoir retiré le code cassé, plutôt que de disparaître silencieusement de la doc une fois le correctif abandonné.

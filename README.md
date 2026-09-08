@@ -101,7 +101,7 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 - Un seul outil réellement câblé pour l'agent (`search_evidence`) ; `inspect_document` existe mais n'est pas exposé au modèle.
 - Une instruction hors du périmètre de l'agent (ex. "supprime ce document") ne produit pas toujours un refus lisible : si la réponse du modèle ne suit pas le format JSON strict attendu, elle remonte comme une erreur technique (502) plutôt qu'un message clair à l'utilisateur.
 - **Palier 4 livré et vérifié** : kill switch, journal persistant, gestion `resource_unavailable` (réseau, clé API absente, base supprimée, kill de processus) — testés en direct, pas seulement en théorie. Sans clé API configurée, l'agent renvoie une erreur explicite (`resource_unavailable`), il ne bascule plus vers une réponse dégradée silencieuse.
-- **Palier 5 en cours** : `status`/`confidence`/`metrics` (coût, tokens) sur la réponse ne sont pas encore ajoutés côté backend au moment de la rédaction — le frontend et l'éval sont construits contre ce contrat. Voir DURCISSEMENT.md pour l'état précis, scénario par scénario.
+- **Palier 5 livré** : `status`/`confidence`/`metrics` (coût, tokens) sur la réponse, validation d'entrée, 27/28 scénarios d'éval passent (mocké + vérifié en direct contre le vrai modèle). Un seul point non livré, documenté honnêtement : l'annulation propre sur déconnexion client bloque le run au lieu de l'arrêter — retirée après test réel plutôt que livrée cassée. Voir DURCISSEMENT.md pour l'état précis, scénario par scénario.
 
 ---
 

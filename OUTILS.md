@@ -2,7 +2,7 @@
 
 Liste des outils et fonctions de l'agent, chacun avec nom, signature typée et effet de bord. Référencé depuis AGENTS.md.
 
-État : palier 5. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : `stop_run` (palier 4) est livré et vérifié en direct, plus un contrat. Le contrat encore ouvert au palier 5 : aucun nouvel outil LLM, seulement des champs supplémentaires (`status`, `confidence`, `metrics`) sur la réponse existante — voir AGENTS.md section 9 et DURCISSEMENT.md.
+État : palier 5. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : `stop_run` (palier 4) est livré et vérifié en direct. Palier 5 : aucun nouvel outil LLM — seulement des champs supplémentaires (`status`, `confidence`, `metrics`) sur la réponse existante, désormais livrés et vérifiés en direct contre le vrai modèle — voir AGENTS.md section 9 et DURCISSEMENT.md.
 
 ---
 

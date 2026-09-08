@@ -1,6 +1,6 @@
 # AGENTS — La Taupe
 
-État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4) est entièrement livrée et vérifiée en direct — ce n'est plus un contrat. Le contrat encore ouvert est celui du palier 5 (`status`, `confidence`, `metrics`), détaillé en fin de section 9 et dans DURCISSEMENT.md. Ce qui est marqué « livré » est vérifié ; ce qui est marqué « contrat, pas encore backend » ne l'est pas — ne pas prétendre le contraire à l'oral.
+État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4 ; puis `status`/`confidence`/`metrics`, palier 5) est entièrement livrée et vérifiée en direct — 27/28 scénarios passent, un seul (annulation sur déconnexion client) reste en échec honnête, cf. DURCISSEMENT.md. Ce qui est marqué « livré » est vérifié — ne pas prétendre le contraire à l'oral, mais ne pas non plus sous-vendre ce qui marche.
 
 ---
 
@@ -165,9 +165,9 @@ Quand une ressource externe (API du modèle, base de données) devient indisponi
 | Backend : `run_id`, `POST /api/runs/{id}/stop`, `GET /api/runs/{id}/journal`, `GET /api/journal/recent`, journal persistant (`backend/run_control.py`, `backend/journal.py`), superviseur de processus (`backend/supervisor.py`) | Livré et fusionné dans `dev`. Testé en direct : cycle `agent_start → stop_requested → stopped`, panne de clé API (`MISSING_CREDENTIAL`), suppression de la base pendant un run, kill du processus enfant sans redémarrage silencieux — tous confirmés avec de vrais horodatages serveur, pas simulés |
 | Frontend : bouton unique Envoyer/STOP, onglet Journal, bandeau `resource_unavailable` | Livré, testé contre le vrai backend |
 
-### Palier 5 — ce qui est encore un contrat, pas du code
+### Palier 5 — livré et vérifié en direct
 
-`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (tokens, appels, coût) sur `Answer` : pas encore ajoutés à `backend/models.py`/`backend/agent.py` au moment de la rédaction — voir DURCISSEMENT.md pour l'état précis, testé scénario par scénario plutôt qu'annoncé en bloc.
+`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (`model`, `model_calls`, `tool_calls`, `input_tokens`, `output_tokens`, `duration_ms`, `estimated_cost_usd`) sur `Answer` : ajoutés à `backend/models.py`, calculés dans `backend/agent.py`, exposés par `backend/main.py`. Validation d'entrée (question/document vides ou hors bornes) ajoutée via Pydantic. 27/28 scénarios passent (`evals/run_eval.py`), y compris un test en direct contre le vrai modèle Anthropic (pas seulement mocké). Le seul point non livré : l'annulation propre sur déconnexion client — tentée, testée en direct, cause un blocage plutôt qu'un arrêt propre, retirée volontairement. Détail complet, scénario par scénario, dans DURCISSEMENT.md.
 
 ### Streaming et boucle d'outils conservés
 

@@ -110,7 +110,37 @@ class SourceRef:
 
 
 @dataclass
+class Confidence:
+    """Confiance de grounding de la réponse — jamais celle déclarée par le
+    modèle sur lui-même (pas de calibration probabiliste réelle disponible).
+    Calculée par le code à partir du nombre de passages/documents réellement
+    cités, cf. `agent._confidence_for`. À ne jamais confondre avec le score
+    du détecteur d'injection (`InjectionVerdict.confidence`), qui porte sur
+    un passage, pas sur la véracité de la réponse."""
+
+    level: Literal["high", "medium", "low", "none", "n/a"]
+    reason: str
+
+
+@dataclass
+class Metrics:
+    """Coût et volume d'un run. `estimated_cost_usd` vaut `None` si le
+    modèle n'a pas de tarif connu — jamais arrondi à 0."""
+
+    model: str
+    model_calls: int
+    tool_calls: int
+    input_tokens: int
+    output_tokens: int
+    duration_ms: int
+    estimated_cost_usd: float | None
+
+
+@dataclass
 class Answer:
     text: str
     citations: list[SourceRef]
     mode: str  # "llm" | "extractive"
+    status: Literal["answered", "insufficient_evidence", "refused"] = "answered"
+    confidence: Confidence | None = None
+    metrics: Metrics | None = None

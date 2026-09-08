@@ -47,7 +47,7 @@ Montrer, dans l'ordre :
 1. La trace d'outil (`search_evidence`, arguments réels choisis par le modèle)
 2. La réponse
 3. La citation
-4. **Si le backend palier 5 est livré** : la confiance affichée, les tokens et le coût dans la meta de la réponse et dans l'onglet Détails de l'Inspector ("Dernière exécution")
+4. La confiance affichée, les tokens et le coût dans la meta de la réponse et dans l'onglet Détails de l'Inspector ("Dernière exécution") — livré, testé en direct contre le vrai modèle (exemple réel observé : confiance "moyenne", 3 appels, coût ~$0.0246)
 
 ### Test 2 — absurde
 
@@ -56,7 +56,7 @@ Montrer, dans l'ordre :
 Sur le corpus de CV, sans rapport. Montrer :
 - 0 preuve utilisée
 - Aucune invention (le texte ne prétend jamais avoir une réponse)
-- **Si le backend palier 5 est livré** : confiance "aucune" affichée explicitement, état neutre (pas une bannière rouge)
+- Confiance "aucune" affichée explicitement, état neutre (pas une bannière rouge) — livré, `status="insufficient_evidence"`
 
 ### Test 3 — hostile
 
