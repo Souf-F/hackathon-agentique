@@ -2,9 +2,11 @@
 
 10 scénarios exécutés contre le VRAI runtime (import direct des modules
 backend, base SQLite temporaire, client Anthropic simulé via le paramètre
-`client` de `run_agent`, ou `httpx.post` monkeypatché pour les scénarios
-réseau). Pas de clé API réelle requise en mode standard, pas d'endpoint
-caché, pas de contournement de sécurité conditionné à un mode "eval".
+`client` de `run_agent`, ou `httpx.AsyncClient.post` monkeypatché pour les
+scénarios réseau — le moteur P4 est async). Contrats P4 vérifiés :
+resource_unavailable + run_failed typés, kill switch réel, journal durable.
+Pas de clé API réelle requise en mode standard, pas d'endpoint caché, pas
+de contournement de sécurité conditionné à un mode "eval".
 
 Usage :
     python evals/run_eval.py
@@ -163,38 +165,108 @@ def scenario_tool_failure() -> tuple[bool, str | None]:
 
 
 def scenario_provider_unavailable() -> tuple[bool, str | None]:
+    """Panne réseau : contrat P4 = ResourceUnavailable typée + run_failed.
+
+    Le moteur P4 est async (httpx.AsyncClient) : c'est ce chemin qui est
+    saboté, pas l'ancien httpx.post synchrone.
+    """
     import httpx
 
-    original_post = httpx.post
+    from backend import journal as journal_mod
+    from backend.errors import ResourceUnavailable
 
-    def broken_post(*_args, **_kwargs):
+    original_post = httpx.AsyncClient.post
+
+    async def broken_post(_self, *_args, **_kwargs):
         raise httpx.ConnectError("panne réseau simulée par l'éval")
 
-    httpx.post = broken_post
+    httpx.AsyncClient.post = broken_post
     try:
         corpus = ingest_corpus([("doc.txt", "Contenu quelconque pour ce scénario.")])
         corpus_id = corpus["corpus_id"]
         try:
             run_agent("Une question quelconque ?", corpus_id)
-        except LLMUnavailable:
+        except ResourceUnavailable as exc:
+            if exc.resource != "anthropic_api" or exc.code != "NETWORK_ERROR":
+                return False, f"mauvais typage ressource : {exc.resource}/{exc.code}"
+            types = [e["type"] for e in journal_mod.recent(1000)]
+            if "resource_unavailable" not in types or "run_failed" not in types:
+                return False, "panne non journalisée (resource_unavailable + run_failed attendus)"
             return True, None
         except Exception as exc:  # noqa: BLE001
             return False, f"exception non contrôlée : {type(exc).__name__}: {exc}"
         else:
             return False, "aucune exception levée malgré une panne réseau simulée"
     finally:
-        httpx.post = original_post
+        httpx.AsyncClient.post = original_post
 
 
 def scenario_kill_switch() -> tuple[bool, str | None]:
+    """Kill switch réel : stop pendant un appel modèle lent."""
+    import asyncio
+    import threading
+    import time
+
+    from backend import journal as journal_mod
+    from backend import run_control as runs
+    from backend.agent import arun_agent
+    from backend.errors import RunStopped
+
     if not (ROOT / "backend" / "run_control.py").exists():
-        return False, (
-            "backend/run_control.py absent — POST /api/runs/{run_id}/stop pas encore livré "
-            "(bloqué côté Erwan, palier 4). Scénario à compléter dès que le endpoint existe : "
-            "lancer un run, appeler stop, vérifier stop_requested -> stopped et l'absence "
-            "d'événement d'exécution après."
-        )
-    return False, "backend/run_control.py existe mais ce scénario n'a pas encore été branché dessus"
+        return False, "backend/run_control.py absent — kill switch non livré"
+
+    corpus = ingest_corpus([("doc.txt", "Contenu quelconque pour ce scénario.")])
+    corpus_id = corpus["corpus_id"]
+    run_id = "eval-kill-switch"
+    calls: list[int] = []
+
+    async def client(_payload: dict) -> dict:
+        calls.append(1)
+        if len(calls) == 1:
+            return _tool_use("tc1", "search_evidence", {"query": "contenu"})
+        await asyncio.sleep(30)
+        return _text({"answer": "trop tard", "used_chunk_ids": []})
+
+    outcome: dict = {}
+
+    def worker() -> None:
+        try:
+            asyncio.run(arun_agent("Question longue ?", corpus_id, client, run_id=run_id))
+            outcome["stopped"] = False
+        except RunStopped:
+            outcome["stopped"] = True
+        except Exception as exc:  # noqa: BLE001
+            outcome["error"] = f"{type(exc).__name__}: {exc}"
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    deadline = time.perf_counter() + 10
+    while time.perf_counter() < deadline:
+        started = [e for e in journal_mod.events_for_run(run_id)
+                   if e["type"] == "model_request_started"]
+        if len(started) >= 2:
+            break
+        time.sleep(0.05)
+    record, _, _ = runs.request_stop(run_id)
+    if record.status not in ("stop_requested", "stopped"):
+        return False, f"stop non pris en compte, statut={record.status}"
+    thread.join(timeout=10)
+    if thread.is_alive():
+        return False, "le run ne s'est pas arrêté après stop (annulation non réelle)"
+    if not outcome.get("stopped"):
+        return False, f"arrêt non propre : {outcome}"
+    if len(calls) != 2:
+        return False, f"rejeu silencieux suspect : {len(calls)} appels modèle au lieu de 2"
+    events = journal_mod.events_for_run(run_id)
+    types = [e["type"] for e in events]
+    if "stop_requested" not in types or "run_stopped" not in types:
+        return False, "stop_requested/run_stopped absents du journal"
+    if "run_completed" in types:
+        return False, "un run stoppé ne doit jamais devenir completed"
+    stop_seq = next(e["seq"] for e in events if e["type"] == "stop_requested")
+    if [e for e in events if e["type"] == "tool_call" and e["seq"] > stop_seq]:
+        return False, "tool_call journalisé après stop_requested"
+    return True, None
 
 
 def scenario_malformed_model_output() -> tuple[bool, str | None]:
@@ -214,12 +286,44 @@ def scenario_malformed_model_output() -> tuple[bool, str | None]:
 
 
 def scenario_database_unavailable() -> tuple[bool, str | None]:
+    """Base supprimée : resource_unavailable(database), jamais recréée en silence."""
+    from backend.db import connect, init_db
+    from backend.errors import ResourceUnavailable
+
     if not (ROOT / "backend" / "journal.py").exists():
-        return False, (
-            "backend/journal.py absent — resource_unavailable(database) pas encore livré "
-            "(bloqué côté Erwan, palier 4)."
-        )
-    return False, "backend/journal.py existe mais ce scénario n'a pas encore été branché dessus"
+        return False, "backend/journal.py absent — journal durable non livré"
+
+    tmp = Path(tempfile.mkdtemp(prefix="eval-dbgone-"))
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/eval-gone.db"
+    try:
+        init_db()
+        corpus = ingest_corpus([("doc.txt", "Contenu quelconque pour ce scénario.")])
+        corpus_id = corpus["corpus_id"]
+        (tmp / "eval-gone.db").unlink()
+        try:
+            run_agent("Une question quelconque ?", corpus_id)
+        except ResourceUnavailable as exc:
+            if exc.resource != "database":
+                return False, f"mauvaise ressource : {exc.resource}/{exc.code}"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"exception non contrôlée : {type(exc).__name__}: {exc}"
+        else:
+            return False, "aucune erreur malgré la base supprimée"
+        if (tmp / "eval-gone.db").exists():
+            return False, "la base a été recréée silencieusement pendant le run"
+        try:
+            connect()
+        except ResourceUnavailable:
+            pass
+        else:
+            return False, "connect() aurait dû lever ResourceUnavailable"
+        return True, None
+    finally:
+        if previous is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous
 
 
 SCENARIOS = [

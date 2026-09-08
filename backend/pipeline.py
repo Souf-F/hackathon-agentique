@@ -10,7 +10,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from .db import connect
+from .db import connect, guard_database
 from .detector import analyze_chunk
 from .models import InjectionVerdict, QuarantineRecord
 
@@ -75,7 +75,7 @@ def ingest_corpus(
     threshold = _threshold()
     summary = {"corpus_id": corpus_id, "documents": 0, "chunks": 0, "quarantined": 0}
 
-    with connect() as conn:
+    with guard_database(), connect() as conn:
         if is_new_corpus:
             conn.execute(
                 "INSERT INTO corpora (corpus_id, created_at) VALUES (?, ?)",
