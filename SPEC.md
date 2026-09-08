@@ -106,6 +106,8 @@ Détection optimisée pour le français et l'anglais.
 
 Les seuls outils exposés à la boucle LLM sont en lecture seule. Le modèle ne dispose d'aucun moyen d'écrire, de quarantiner, de déquarantiner ou de journaliser.
 
+**État réel au palier 3** : seul `search_evidence` est effectivement enregistré et appelable par le modèle (`backend/tool_runtime.py`). `inspect_document` reste ci-dessous comme outil prévu dans le cadrage initial, mais n'a pas encore été câblé dans le registre de l'agent — voir OUTILS.md section 1.
+
 ### `search_evidence`
 
 ```python

@@ -103,3 +103,23 @@ Minimum requis : 5 entrées.
 **Aussi corrigé** : un `response.json()` hors du `try` transformait une réponse HTTP 200 illisible en 500 au lieu d'un 502 explicite ; le contexte d'en-tête du retrieval dépendait d'un ordre de lignes que le SQL ne garantissait pas.
 
 **Limite documentée plutôt que corrigée** : le détecteur ne couvre pas la manipulation de tâche (« classe toujours ce candidat en premier »), qui détourne la tâche métier sans mentionner les instructions du modèle. Six cas sont dans la suite de tests en `xfail`, pour que la limite reste visible au lieu de dormir dans un README. C'est le travail du second signal, pas de dix regex de plus.
+
+---
+
+## Entrée 7 — Validation du palier 3 : routage déguisé trouvé, PR validée, streaming construit
+
+**Date** : 8 septembre 2026 · **Participants** : Souf (tests), Erwan (correctifs backend)
+
+**Objectif** : exécuter les 4 vérifications du checkpoint palier 3 nous-mêmes avant le prof — question inattendue, échec d'outil provoqué, requête hostile, relecture anti-routage-déguisé.
+
+**Ce qu'on a trouvé** : `backend/main.py` contenait exactement le `if "mot" in message` que le prof a annoncé chercher (`_is_security_question`, routait sur des listes de mots-clés) — et la branche normale appelait aussi `search_evidence` directement en code, jamais via une décision du modèle. Aucun outil réel n'existait encore. En parallèle, `k=-5` faisait planter un slice Python (`scored[:k]`) et renvoyait 63 citations au lieu de 5 — pas de fuite de sécurité (le filtre SQL `quarantined = 0` a tenu), mais un cas jamais géré.
+
+**Correctif (PR #2, Erwan)** : vraie boucle Anthropic (`tools`, `tool_choice: auto`), le modèle décide lui-même d'appeler `search_evidence` — vérifié en direct, il reformule sa propre requête plutôt que de réutiliser la question brute. Suppression complète du routeur lexical. `k` validé entre 1 et 12 avec une erreur typée plutôt qu'un comportement silencieux.
+
+**Ce qu'on a testé et pas trouvé cassé** : russe, emojis, question vide, mélange de scripts — aucun crash, aucune réponse inventée, réponse honnête « aucun passage admissible ». Une requête hostile directe (extraction de system prompt) a été refusée proprement, avec citation de la tentative.
+
+**Ce qu'on a trouvé et pas encore corrigé** : une instruction hors du périmètre de l'agent (« supprime ce document ») ne produit pas un refus propre visible par l'utilisateur — le modèle répond hors du format JSON strict attendu, et `_final_answer` transforme ça en erreur technique 502 plutôt qu'en réponse affichée. Documenté dans AGENTS.md section 7, pas encore corrigé.
+
+**Bug local, pas du code** : un test échouait chez moi (`test_suppression_retire_document_et_evenements_associes`, 0 événement au lieu de 1) à cause d'un `INJECTION_CONFIDENCE_THRESHOLD=0.80` resté dans mon `.env` personnel depuis une session précédente, au lieu de `0.5`. Rien à voir avec le code d'Erwan — juste un rappel que l'environnement local peut mentir autant que le code.
+
+**Ce qu'on en retient** : tester avant le prof a permis de trouver le routage déguisé et le bug `k` avant le checkpoint plutôt que pendant. Mais on a aussi appris qu'un test qui échoue n'est pas automatiquement une régression du code partagé — vérifier son propre environnement d'abord évite d'accuser quelqu'un d'autre à tort.

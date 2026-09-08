@@ -67,10 +67,14 @@ API
   │   admissible ──► index          quarantaine ──► journal
   │        │                                            │
   ▼        ▼                                            ▼
-question ──► search_evidence ──► LLM ──► réponse + citations   rapport
+question ──► Claude (tool_choice=auto) ──┬──► search_evidence ──► résultat ──► (retour à Claude)
+                                          │
+                                          └──► réponse finale (JSON) ──► citations vérifiées   rapport
 ```
 
-Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`).
+C'est Claude qui décide d'appeler `search_evidence`, pas le code applicatif — vérifié en direct (streaming SSE sur `/api/ask/stream`, événements `tool_call`/`tool_result` visibles côté frontend).
+
+Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool_calls`).
 
 ---
 
@@ -84,6 +88,7 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`).
 | Unité de quarantaine | Le passage | Le document entier | Éviter de perdre l'information légitime d'un document majoritairement sain |
 | Traitement des injections | Isolement + journal | Réécriture / nettoyage du texte | Une injection réécrite disparaît de l'audit |
 | Outils exposés au modèle | Lecture seule | Outils avec effets de bord | La quarantaine ne doit pas dépendre d'une décision du modèle |
+| Décision d'appeler l'outil | Le modèle (`tool_choice: auto`) | Routage par mots-clés dans le code | Un `if "mot" in message` n'est pas de l'intelligence, et c'était le cas jusqu'au palier 3 |
 
 ---
 
@@ -93,6 +98,8 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`).
 - Pas de garantie sur le taux de faux positifs ou de faux négatifs ; les décisions sont en revanche journalisées et contestables.
 - Pas de fact-checking : un document faux mais non manipulateur est traité comme légitime.
 - Détection optimisée pour le français et l'anglais.
+- Un seul outil réellement câblé pour l'agent (`search_evidence`) ; `inspect_document` existe mais n'est pas exposé au modèle.
+- Une instruction hors du périmètre de l'agent (ex. "supprime ce document") ne produit pas toujours un refus lisible : si la réponse du modèle ne suit pas le format JSON strict attendu, elle remonte comme une erreur technique (502) plutôt qu'un message clair à l'utilisateur.
 
 ---
 

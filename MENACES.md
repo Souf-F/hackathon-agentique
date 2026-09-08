@@ -119,7 +119,7 @@ L'agent doit distinguer répondre à une question métier de suivre une consigne
 
 ## 8. Canal 6 — Outils exposés au modèle
 
-**Qui parle** : `search_evidence` et `inspect_document`, seuls outils de la boucle LLM.
+**Qui parle** : `search_evidence`, seul outil réellement enregistré dans la boucle LLM (`inspect_document` existe dans le code mais n'est pas exposé au modèle — utilisé uniquement côté serveur).
 
 **Confiance** : le canal lui-même est fiable ; les données qu'il transporte ne le sont pas.
 
