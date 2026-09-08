@@ -59,8 +59,20 @@ CREATE TABLE IF NOT EXISTS queries (
     answer      TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tool_calls (
+    call_id     TEXT PRIMARY KEY,
+    corpus_id   TEXT NOT NULL,
+    timestamp   TEXT NOT NULL,
+    tool        TEXT NOT NULL,
+    arguments   TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    result      TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_corpus ON chunks(corpus_id, quarantined);
 CREATE INDEX IF NOT EXISTS idx_events_corpus ON security_events(corpus_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_corpus ON tool_calls(corpus_id);
 """
 
 

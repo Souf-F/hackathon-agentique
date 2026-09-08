@@ -12,10 +12,25 @@ os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/test.db"
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.db import init_db  # noqa: E402
+from backend.agent import AgentRun  # noqa: E402
 from backend.main import app  # noqa: E402
+from backend.models import Answer, SourceRef  # noqa: E402
+from backend.tools import search_evidence  # noqa: E402
 
 init_db()
 client = TestClient(app)
+
+
+def _mock_agent(question, corpus_id):
+    evidence = search_evidence(corpus_id, question, 5)
+    return AgentRun(
+        Answer(
+            text=evidence[0].text if evidence else "Aucune preuve admissible.",
+            citations=[SourceRef(c.document_id, c.chunk_id) for c in evidence[:1]],
+            mode="llm",
+        ),
+        traces=[],
+    )
 
 
 def _demo():
@@ -37,7 +52,8 @@ def test_un_seul_passage_est_quarantine():
         assert by_name[name]["status"] == "clean", f"faux positif sur {name}"
 
 
-def test_le_contenu_legitime_du_document_piege_reste_exploitable():
+def test_le_contenu_legitime_du_document_piege_reste_exploitable(monkeypatch):
+    monkeypatch.setattr("backend.main.run_agent", _mock_agent)
     cid = _demo()
     r = client.post("/api/ask", json={
         "corpus_id": cid,
@@ -47,16 +63,24 @@ def test_le_contenu_legitime_du_document_piege_reste_exploitable():
     assert any(c["source_name"] == "cv_nico.txt" for c in r["citations"])
 
 
-def test_question_sur_la_securite_repond_depuis_les_agregats():
+def test_question_securite_passe_integralement_a_l_agent(monkeypatch):
+    received = []
+
+    def agent(question, corpus_id):
+        received.append(question)
+        return AgentRun(Answer("Réponse de l'agent.", [], "llm"), [])
+
+    monkeypatch.setattr("backend.main.run_agent", agent)
     cid = _demo()
     r = client.post("/api/ask", json={
         "corpus_id": cid,
         "question": "Est-ce que tu as trouvé un problème de sécurité ?",
     }).json()
 
-    assert r["mode"] == "security_summary"
-    assert "1 passage en quarantaine" in r["answer"]
-    assert r["citations"] == []
+    assert r["mode"] == "llm"
+    assert received == ["Est-ce que tu as trouvé un problème de sécurité ?"]
+    import backend.main as main_module
+    assert not hasattr(main_module, "_is_security_question")
 
 
 def test_corpus_inconnu_renvoie_404():
@@ -64,7 +88,8 @@ def test_corpus_inconnu_renvoie_404():
     assert r.status_code == 404
 
 
-def test_aucune_citation_ne_pointe_vers_un_passage_quarantine():
+def test_aucune_citation_ne_pointe_vers_un_passage_quarantine(monkeypatch):
+    monkeypatch.setattr("backend.main.run_agent", _mock_agent)
     cid = _demo()
     report = client.get(f"/api/corpus/{cid}/report").json()
     interdits = {e["chunk_id"] for e in report["events"]}
