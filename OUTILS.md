@@ -2,7 +2,7 @@
 
 Liste des outils et fonctions de l'agent, chacun avec nom, signature typée et effet de bord. Référencé depuis AGENTS.md.
 
-État : palier 5. Sections 1-3 à jour avec le code réel du palier 3 (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : `stop_run` (palier 4) est livré et vérifié en direct. Palier 5 : aucun nouvel outil LLM — seulement des champs supplémentaires (`status`, `confidence`, `metrics`) sur la réponse existante, désormais livrés et vérifiés en direct contre le vrai modèle — voir AGENTS.md section 9 et DURCISSEMENT.md.
+État : palier 6 (livraison finale). Sections 1-3 à jour avec le code réel (`backend/tool_runtime.py`, `backend/agent.py`), inchangé. Section 4 : `stop_run` (palier 4) est livré et vérifié en direct. Palier 5 : aucun nouvel outil LLM — seulement des champs supplémentaires (`status`, `confidence`, `metrics`) sur la réponse existante, livrés et vérifiés en direct contre le vrai modèle — voir AGENTS.md section 9 et DURCISSEMENT.md. Section 5 (nouvelle) : les fonctions de mesure du palier 5 (`backend/metrics.py`, `grounding_confidence` dans `backend/models.py`).
 
 ---
 
@@ -59,9 +59,9 @@ Effet de bord : indirect (déclenche `search_evidence` et l'appel Anthropic, jou
 
 Génère les événements `agent_start`, `tool_call`, `tool_result`, `text_delta`, `done` (consommés par `/api/ask` en mode bloquant et `/api/ask/stream` en SSE — même générateur, deux façons de le lire). Bornée à `MAX_TOOL_ROUNDS = 4` tours d'outils ; au-delà, lève `LLMUnavailable("limite de tours outils atteinte")`.
 
-La réponse finale du modèle doit être un JSON strict `{"answer": "...", "used_chunk_ids": [...]}` — les citations sont validées après coup contre les `chunk_id` réellement retournés par les appels d'outils du run (`runtime.returned_chunk_ids`), pas simplement recopiées depuis ce que dit le modèle.
+La réponse finale du modèle doit être un JSON strict `{"status": "answered | insufficient_evidence | refused", "answer": "...", "used_chunk_ids": [...]}` (palier 5 — le champ `status` s'ajoute au contrat du palier 3) — les citations sont validées après coup contre les `chunk_id` réellement retournés par les appels d'outils du run (`runtime.returned_chunk_ids`), pas simplement recopiées depuis ce que dit le modèle. Le `status` lui-même n'est pas non plus pris tel quel : voir `grounding_confidence` en section 5, et AGENTS.md section 9 pour le garde-fou qui peut le rétrograder.
 
-**Limite connue** : si la réponse finale du modèle n'est pas ce JSON strict (par exemple s'il répond en langage naturel qu'il ne peut pas exécuter une demande), `_final_answer` lève `LLMUnavailable("réponse finale modèle malformée")`, remontée comme une erreur technique (502) plutôt que comme une réponse affichée à l'utilisateur. À vérifier / durcir avant le checkpoint.
+**Boucle de réparation** : si la réponse finale du modèle n'est pas ce JSON strict (par exemple s'il répond en langage naturel), `backend/agent.py` retente **une fois** avec `REPAIR_INSTRUCTION` (demande explicite de reformuler en JSON strict, sans changer les faits). Si cette réparation échoue aussi, `_ground_final_answer` lève `LLMUnavailable("réponse finale modèle malformée")`, remontée comme une erreur technique (HTTP 502) — propre (pas de fuite, pas de stack trace) mais pas un `status="refused"` explicite. **Limite connue, testée en direct** : sur un prompt hostile élaboré, ça arrive environ une fois sur cinq observée malgré la réparation — cf. DURCISSEMENT.md H20.
 
 ---
 
@@ -97,3 +97,18 @@ Ne pas mélanger deux catégories différentes :
 | Effet de bord | Non (lecture seule) | Oui (change l'état du run) |
 
 **État** : `backend/run_control.py` et l'endpoint `POST /api/runs/{run_id}/stop` sont livrés et vérifiés en direct (cycle `running → stop_requested → stopped`, aucun appel d'outil après la demande d'arrêt). Le frontend garde sa gestion défensive de l'endpoint absent — utile si un déploiement tourne temporairement sur un backend plus ancien, pas parce que l'endpoint manquerait aujourd'hui.
+
+---
+
+## 5. Fonctions de mesure — palier 5 (non exposées au modèle)
+
+Ni des outils LLM, ni du pipeline d'ingestion : des fonctions pures qui transforment ce que le fournisseur (Anthropic) et la boucle agentique produisent déjà en `metrics`/`confidence` honnêtes, jamais recalculées après coup à partir de suppositions.
+
+| Fonction / classe | Signature réelle | Effet de bord |
+|---|---|---|
+| Accumulateur d'usage | `UsageAccumulator(model: str \| None = None)` — méthodes `.record(response: dict) -> None`, `.set_tool_calls(n: int) -> None`, `.snapshot() -> dict` (`backend/metrics.py`) | Non — additionne en mémoire l'usage de chaque réponse fournisseur du run ; si un `response` n'a pas de bloc `usage` (client mocké), les compteurs passent à `None` et `usage_available=False` plutôt qu'un faux zéro |
+| Tarif par modèle | `pricing_for(model: str \| None) -> tuple[Decimal, Decimal] \| None` (`backend/metrics.py`) | Non — `None` explicite si le modèle n'est pas dans `PRICING`, jamais un tarif appliqué par défaut à un modèle inconnu |
+| Métrique indisponible | `unavailable(model: str \| None = None) -> dict` (`backend/metrics.py`) | Non — même forme que `.snapshot()`, utilisée quand aucun run réel n'a eu lieu (ex. réponse extractive) |
+| Confiance de grounding | `grounding_confidence(status: str, n_refs: int, n_docs: int, had_tool_error: bool) -> dict` (`backend/models.py`) | Non — déterministe à partir du nombre de passages/documents réellement cités, jamais une auto-évaluation du modèle. `refused` → `n/a` ; 0 citation → `none` ; erreur d'outil en cours de route → `low` ; ≥2 documents distincts → `high` ; sinon `medium` |
+
+**Pourquoi ce n'est pas dans la boucle du modèle** : la confiance et le coût affichés à l'utilisateur doivent rester vrais même si le modèle ment ou s'auto-évalue mal — donc ils sont recalculés côté application à partir de faits vérifiables (citations réellement retournées par les outils, tokens réellement facturés par le fournisseur), jamais lus depuis ce que le modèle prétend.

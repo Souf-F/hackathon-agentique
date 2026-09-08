@@ -80,7 +80,7 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 
 ## Choix retenus et écartés
 
-> Section à compléter au fil des paliers. Déjà arrêté :
+Arrêté au fil des paliers, figé pour la livraison :
 
 | Décision | Retenu | Écarté | Raison |
 |---|---|---|---|
@@ -89,6 +89,12 @@ Persistance : SQLite (`documents`, `chunks`, `security_events`, `queries`, `tool
 | Traitement des injections | Isolement + journal | Réécriture / nettoyage du texte | Une injection réécrite disparaît de l'audit |
 | Outils exposés au modèle | Lecture seule | Outils avec effets de bord | La quarantaine ne doit pas dépendre d'une décision du modèle |
 | Décision d'appeler l'outil | Le modèle (`tool_choice: auto`) | Routage par mots-clés dans le code | Un `if "mot" in message` n'est pas de l'intelligence, et c'était le cas jusqu'au palier 3 |
+| Arrêt d'un run (kill switch) | Endpoint opérateur classique, invisible du modèle | Un `tool` `stop_run` exposé au modèle | Le modèle ne doit ni décider, ni même savoir qu'un arrêt est possible — sinon il pourrait s'y opposer ou le simuler |
+| Confiance affichée à l'utilisateur | Calculée par le code à partir du nombre de citations/documents réellement utilisés (`grounding_confidence`) | Demander au modèle de s'auto-évaluer (0-100 %) | Un LLM n'a aucune calibration probabiliste réelle ; un score auto-déclaré serait aussi inventé qu'une réponse inventée, juste déplacé d'un cran |
+| Statut `answered`/`insufficient_evidence`/`refused` | Le code peut le rétrograder après coup si les citations sont vides, même si le modèle prétend `answered` | Faire confiance à l'auto-déclaration du modèle | Le modèle ne ment pas volontairement dans nos tests, mais rien ne garantit qu'il ne le fera jamais — un garde-fou structurel ne dépend pas de sa bonne volonté |
+| Coût d'un run manquant | `usage_available=false` explicite, jamais un `0` silencieux | Considérer un usage manquant comme un coût nul | Un faux zéro affiché à l'utilisateur est une invention comme une autre |
+| Annulation sur déconnexion client | Annulation directe de la tâche `asyncio` qui porte l'appel fournisseur | Un watcher qui sonde périodiquement `request.is_disconnected()` | Testé en direct : le watcher ne détecte rien tant que l'exécution est bloquée dans un `await` profond (l'appel modèle lui-même) — le run restait bloqué indéfiniment |
+| Implémentation backend en doublon (palier 5) | Celle d'Erwan, en tant que propriétaire du backend | Forcer la fusion de la version écrite en parallèle côté frontend/éval | Les deux équipes ont implémenté le même contrat sans se synchroniser en amont ; comparée objectivement, celle d'Erwan couvrait des cas que l'autre ne couvrait pas (cf. JOURNAL.md entrée 11) |
 
 ---
 
