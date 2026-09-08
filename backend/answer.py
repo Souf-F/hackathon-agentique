@@ -21,7 +21,7 @@ import logging
 import os
 import json
 
-from .models import Answer, EvidenceChunk, SourceRef
+from .models import Answer, EvidenceChunk, SourceRef, grounding_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,8 @@ def answer_query(question: str, evidence: list[EvidenceChunk]) -> Answer:
             text="Aucun passage admissible ne permet de répondre à cette question.",
             citations=[],
             mode="extractive",
+            status="insufficient_evidence",
+            confidence=grounding_confidence("insufficient_evidence", 0, 0, False),
         )
 
     if os.getenv("ANTHROPIC_API_KEY", "").strip():
@@ -134,8 +136,11 @@ def answer_query(question: str, evidence: list[EvidenceChunk]) -> Answer:
         text, used = _extractive(evidence)
         mode = "extractive"
 
+    docs = {c.document_id for c in used}
     return Answer(
         text=text,
         citations=[SourceRef(c.document_id, c.chunk_id) for c in used],
         mode=mode,
+        status="answered",
+        confidence=grounding_confidence("answered", len(used), len(docs), False),
     )

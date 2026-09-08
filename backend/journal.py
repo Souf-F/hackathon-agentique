@@ -12,6 +12,7 @@ redémarrage du processus (recalculé depuis le fichier si besoin).
 
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -76,19 +77,56 @@ def _next_seq(run_id: str) -> int:
     return nxt
 
 
-_SECRET_HINTS = ("api_key", "apikey", "authorization", "x-api-key", "secret", "token", "credential", "password")
+# Noms de champs secrets : correspondance EXACTE ou suffixe explicite, jamais
+# sous-chaîne (un matching flou rédigerait des compteurs légitimes comme
+# input_tokens — régression constatée en vérification live).
+_SECRET_KEYS = {
+    "api_key", "apikey", "api-key", "x-api-key", "authorization",
+    "secret", "token", "credential", "credentials", "password", "passwd",
+    "access_token", "refresh_token", "client_secret", "api_secret",
+    "auth_token", "id_token", "bearer",
+}
+_SECRET_SUFFIXES = (
+    "_api_key", "_apikey", "-api-key", "_access_token", "_refresh_token",
+    "_client_secret", "_api_secret", "_auth_token", "_password", "_passwd",
+    "_secret", "_credential", "_credentials", "authorization",
+)
+
+
+def _is_secret_key(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in _SECRET_KEYS or lowered.endswith(_SECRET_SUFFIXES)
+
+# Valeurs ressemblant à des secrets, même sous un nom de champ innocent
+# (ex : secret collé dans une requête). On ne protège pas que les noms.
+_SECRET_VALUE_PATTERNS = [
+    re.compile(r"sk-ant-[A-Za-z0-9\-_]{8,}"),
+    re.compile(r"\bsk-[A-Za-z0-9\-_]{16,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9]{10,}\b"),
+    re.compile(r"\bgho_[A-Za-z0-9]{10,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\b[a-f0-9]{64}\b"),  # condensat hexadécimal type clé / empreinte brute
+]
+
+
+def _redact_secret_values(text: str) -> str:
+    for pattern in _SECRET_VALUE_PATTERNS:
+        text = pattern.sub("[redacted]", text)
+    return text
 
 
 def _scrub(value):
     if isinstance(value, dict):
         return {
-            str(k)[:120]: ("[redacted]" if any(h in str(k).lower() for h in _SECRET_HINTS) else _scrub(v))
+            str(k)[:120]: ("[redacted]" if _is_secret_key(str(k)) else _scrub(v))
             for k, v in value.items()
         }
     if isinstance(value, list):
         return [_scrub(v) for v in value[:50]]
     if isinstance(value, str):
-        return value[:2000]
+        return _redact_secret_values(value)[:2000]
     return value
 
 

@@ -115,7 +115,10 @@ def test_exception_tool_journalisee_sans_stack(tmp_path, monkeypatch):
                          "input": {"query": "Python"}}]}
     responses = [tool, _final("Degrade.")]
     run = asyncio.run(arun_agent("Q ?", cid, lambda _p: responses.pop(0)))
-    assert run.answer.text == "Degrade."
+    # Échec tool + aucune preuve valide : pas d'invention, abstention serveur.
+    assert run.answer.status == "insufficient_evidence"
+    assert run.answer.citations == []
+    assert "preuves admissibles" in run.answer.text
     results = [e for e in journal_mod.events_for_run(run.run_id) if e["type"] == "tool_result"]
     assert results and results[0]["data"]["trace"]["status"] == "error"
     with open(os.environ["ORACLE_JOURNAL_PATH"], encoding="utf-8") as fh:
@@ -151,7 +154,7 @@ def test_run_incomplet_puis_restart_marche_interrupted(tmp_path, monkeypatch):
     assert journal_mod.mark_interrupted_runs() == [], "idempotent après marquage"
 
 
-def test_api_journal_ordonne_et_recent_borne(tmp_path, monkeypatch):
+def test_api_journal_par_run_ordonne_et_global_non_expose(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from backend.main import app
@@ -167,9 +170,8 @@ def test_api_journal_ordonne_et_recent_borne(tmp_path, monkeypatch):
     assert events[0]["type"] == "run_started"
     assert events[-1]["type"] == "run_completed"
     assert client.get("/api/runs/inconnu/journal").status_code == 404
-    response = client.get("/api/journal/recent", params={"limit": 100000})
-    assert response.status_code == 200
-    assert response.json()["count"] <= 500
+    # Le journal global n'est plus exposé publiquement (vie privée).
+    assert client.get("/api/journal/recent", params={"limit": 100000}).status_code == 404
 
 
 def test_api_stop_idempotent_et_404(tmp_path, monkeypatch):
