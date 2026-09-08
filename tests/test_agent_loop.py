@@ -6,7 +6,7 @@ import pytest
 
 os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/agent.db"
 
-from backend.agent import MAX_TOOL_ROUNDS, run_agent
+from backend.agent import MAX_TOOL_ROUNDS, agent_events, run_agent
 from backend.answer import LLMUnavailable
 from backend.db import init_db
 from backend.pipeline import ingest_corpus
@@ -70,3 +70,31 @@ def test_requete_hostile_ne_revele_pas_de_secret():
 
     assert "cle API" not in run.answer.text.lower()
     assert "ANTHROPIC_API_KEY" not in json.dumps(captured)
+
+
+def test_echec_tool_est_trace_et_le_modele_peut_repondre_proprement(monkeypatch):
+    monkeypatch.setattr(
+        "backend.tool_runtime.search_evidence",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("stack interne")),
+    )
+    responses = [
+        {"content": [{"type": "tool_use", "id": "call-1", "name": "search_evidence", "input": {"query": "Python"}}]},
+        {"content": [{"type": "text", "text": json.dumps({
+            "answer": "La recherche n'a pas pu être exécutée.", "used_chunk_ids": [],
+        })}]},
+    ]
+    events = agent_events("Question", _corpus(), lambda _: responses.pop(0))
+    received = []
+    while True:
+        try:
+            received.append(next(events))
+        except StopIteration as stop:
+            run = stop.value
+            break
+
+    assert [event["type"] for event in received] == [
+        "agent_start", "tool_call", "tool_result", "text_delta", "done",
+    ]
+    assert received[2]["data"]["status"] == "error"
+    assert "stack interne" not in json.dumps(received[2])
+    assert run.answer.text == "La recherche n'a pas pu être exécutée."
