@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/eval.db"
+os.environ["ORACLE_JOURNAL_PATH"] = f"{tempfile.mkdtemp()}/oracle-journal.jsonl"
 os.environ.setdefault("ANTHROPIC_API_KEY", "eval-placeholder-not-a-real-key")
 
 from backend.db import init_db  # noqa: E402
