@@ -16,8 +16,10 @@ os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/isolation.db"
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.answer import _render_evidence  # noqa: E402
+from backend.agent import AgentRun  # noqa: E402
 from backend.db import init_db  # noqa: E402
 from backend.main import app  # noqa: E402
+from backend.models import Answer, SourceRef  # noqa: E402
 from backend.tools import inspect_document, search_evidence  # noqa: E402
 
 init_db()
@@ -65,7 +67,15 @@ def test_le_rapport_utilisateur_conserve_le_nom():
     assert report["documents"][0]["source_name"] == HOSTILE
 
 
-def test_les_citations_portent_le_nom_resolu_apres_generation():
+def test_les_citations_portent_le_nom_resolu_apres_generation(monkeypatch):
+    def agent(_, corpus_id):
+        evidence = search_evidence(corpus_id, "experience Python", 5)
+        return AgentRun(
+            Answer("Réponse test.", [SourceRef(evidence[0].document_id, evidence[0].chunk_id)], "llm"),
+            [],
+        )
+
+    monkeypatch.setattr("backend.main.run_agent", agent)
     cid = _corpus()["corpus_id"]
     r = client.post("/api/ask", json={
         "corpus_id": cid, "question": "experience Python"}).json()

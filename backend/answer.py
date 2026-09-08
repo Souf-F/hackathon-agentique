@@ -19,6 +19,7 @@ quarantinés, transmis dans un bloc de données délimité.
 
 import logging
 import os
+import json
 
 from .models import Answer, EvidenceChunk, SourceRef
 
@@ -47,11 +48,10 @@ def _render_evidence(evidence: list[EvidenceChunk]) -> str:
     le prompt le chemin que la quarantaine du chunk `metadata` a fermé.
     Le nom est résolu après génération (display.resolve_source_names).
     """
-    blocks = [
-        f"[chunk_id={c.chunk_id} document_id={c.document_id}]\n{c.text}"
+    return json.dumps({"evidence": [
+        {"chunk_id": c.chunk_id, "document_id": c.document_id, "text": c.text}
         for c in evidence
-    ]
-    return "<DONNEES>\n" + "\n\n".join(blocks) + "\n</DONNEES>"
+    ]}, ensure_ascii=False)
 
 
 def _call_llm(question: str, evidence: list[EvidenceChunk]) -> str:

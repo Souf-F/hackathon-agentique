@@ -94,7 +94,7 @@ def test_aucune_preuve_ne_declenche_aucun_appel(monkeypatch):
     assert a.citations == []
 
 
-def test_le_prompt_delimite_les_donnees():
+def test_le_prompt_serialise_les_donnees():
     rendered = answer_module._render_evidence(EVIDENCE)
-    assert rendered.startswith("<DONNEES>") and rendered.endswith("</DONNEES>")
-    assert "chunk_id=c1" in rendered
+    assert '"chunk_id": "c1"' in rendered
+    assert "<DONNEES>" not in rendered
