@@ -100,6 +100,7 @@ Arrêté au fil des paliers, figé pour la livraison :
 
 ## Limites connues
 
+- Attribution candidat/fait non garantie sur un corpus à plusieurs documents similaires : quand un fait pertinent est trouvé mais que les en-têtes de CV se ressemblent trop entre eux, le modèle peut épuiser son budget de recherche (4 appels) sans relier le fait au bon candidat, et répondre `insufficient_evidence` alors que la preuve existait. Mesuré en direct sur le corpus de démo (7 CV) : une question précise (entreprise + techno nommées) réussit dans la majorité des cas mais pas à 100 % ; une question vague échoue plus souvent. Pas une invention (aucune réponse fausse produite), juste une abstention parfois trop prudente. Cf. DEMO.md pour la question retenue et le geste de repli (reposer la question une fois).
 - Aucune détection dans les canaux non textuels (texte caché en PDF, macros, stéganographie).
 - Pas de garantie sur le taux de faux positifs ou de faux négatifs ; les décisions sont en revanche journalisées et contestables.
 - Pas de fact-checking : un document faux mais non manipulateur est traité comme légitime.
@@ -108,6 +109,7 @@ Arrêté au fil des paliers, figé pour la livraison :
 - Une instruction hors du périmètre de l'agent (ex. "supprime ce document") ne produit pas toujours un refus lisible : si la réponse du modèle ne suit pas le format JSON strict attendu, elle remonte comme une erreur technique (502) plutôt qu'un message clair à l'utilisateur.
 - **Palier 4 livré et vérifié** : kill switch, journal persistant, gestion `resource_unavailable` (réseau, clé API absente, base supprimée, kill de processus) — testés en direct, pas seulement en théorie. Sans clé API configurée, l'agent renvoie une erreur explicite (`resource_unavailable`), il ne bascule plus vers une réponse dégradée silencieuse.
 - **Palier 5 livré** : `status`/`confidence`/`metrics` (coût, tokens) sur la réponse, validation d'entrée bornée en octets réels, annulation propre sur déconnexion client, 28/28 scénarios d'éval passent (mocké + vérifié en direct contre le vrai modèle). Un point de vigilance documenté honnêtement plutôt que caché : un prompt hostile plus élaboré peut, environ une fois sur cinq observée, faire échouer le format JSON de sortie même après une tentative de réparation — échec typé et sans fuite, mais pas encore fiable à 100 %. Voir DURCISSEMENT.md pour l'état précis, scénario par scénario.
+- **Palier 6 (gel/livraison)** : contrat à 4 statuts (`answered`/`insufficient_evidence`/`out_of_scope`/`refused`) — `out_of_scope` distingue désormais une question sans rapport avec le corpus (0 appel d'outil) d'une vraie question de corpus sans preuve suffisante. Décidé sémantiquement par le modèle, jamais par une liste de mots-clés. Audit complet de l'historique git avant le gel : aucun secret versionné trouvé (voir JOURNAL.md, entrée 13).
 
 ---
 
