@@ -1,6 +1,6 @@
 # AGENTS — La Taupe
 
-État : palier 5. Les sections 1 à 8 décrivent la boucle réelle du palier 3, inchangée. La section 9 (run lifecycle, kill switch, journal, palier 4 ; puis `status`/`confidence`/`metrics`, palier 5) est entièrement livrée et vérifiée en direct — 28/28 scénarios passent. Un point de vigilance non automatisé reste ouvert (repair loop de format JSON pas fiable à 100 % sous prompt hostile élaboré), cf. DURCISSEMENT.md H20. Ce qui est marqué « livré » est vérifié — ne pas prétendre le contraire à l'oral, mais ne pas non plus sous-vendre ce qui marche.
+État : palier 6 (gel livraison). Les sections 1 à 8 décrivent la boucle réelle, inchangée. La section 9 (run lifecycle, kill switch, journal, puis `status`/`confidence`/`metrics` — quatre statuts : `answered`, `insufficient_evidence`, `out_of_scope`, `refused`) est entièrement livrée et vérifiée en direct. Un point de vigilance non automatisé reste ouvert (repair loop de format JSON pas fiable à 100 % sous prompt hostile élaboré), cf. DURCISSEMENT.md H20 et la section « Dette technique assumée ». Ce qui est marqué « livré » est vérifié — ne pas prétendre le contraire à l'oral, mais ne pas non plus sous-vendre ce qui marche.
 
 ---
 
@@ -83,7 +83,8 @@ L'analyse a lieu **avant** l'indexation : un passage en quarantaine n'entre jama
 ```text
 question ──► Claude (tools=[search_evidence], tool_choice=auto)
                   │
-                  ├── pas d'appel d'outil ──► réponse finale (JSON strict)
+                   ├── pas d'appel d'outil ──► réponse finale (JSON strict,
+                   │                            4 statuts possibles)
                   │
                   └── tool_use ──► ToolRuntime.execute()
                                         │
@@ -93,7 +94,7 @@ question ──► Claude (tools=[search_evidence], tool_choice=auto)
                                    (boucle, max 4 tours)
 ```
 
-C'est Claude qui choisit d'appeler `search_evidence`, avec quelle requête et quel `k` — pas le code applicatif. Vérifié en direct : sur une question réelle, le modèle reformule sa propre requête de recherche plutôt que de réutiliser la question telle quelle.
+C'est Claude qui choisit d'appeler `search_evidence`, avec quelle requête et quel `k` — pas le code applicatif. Vérifié en direct : sur une question réelle, le modèle reformule sa propre requête de recherche plutôt que de réutiliser la question telle quelle. Inversement, sur une demande hors périmètre documentaire (ex. « As-tu joué à Mario ? »), le modèle retourne `status="out_of_scope"` **sans aucun appel d'outil** — vérifié en direct : 0 `tool_call` au journal. Aucun routage lexical dans le code : la classification `corpus` / `out_of_scope` appartient au modèle, le runtime applique les garanties liées au statut (message serveur fixe, aucune citation).
 
 **Ce que le diagramme ci-dessus ne montre pas (ajouts palier 5)** :
 
@@ -118,7 +119,7 @@ réponse finale ──► JSON strict ? ──oui──► status/confidence/met
 
 ## 6. Prompts système
 
-**Répondeur** (`backend/agent.py`) — trois prompts distincts, reproduits ici tels quels, c'est ce qui tourne réellement en production (version palier 6, contrat final à **4 statuts** — mise à jour le 9 septembre 2026 quand `out_of_scope` a été ajouté, cf. JOURNAL.md entrée 12).
+**Répondeur** (`backend/agent.py`) — trois prompts distincts, reproduits ici tels quels, c'est ce qui tourne réellement en production (version gelée, palier 6, contrat final à **4 statuts** — mise à jour le 9 septembre 2026 quand `out_of_scope` a été ajouté, cf. JOURNAL.md entrée 12).
 
 **`SYSTEM_PROMPT`** — envoyé à chaque appel du modèle, du premier tour à la réponse finale :
 
@@ -171,9 +172,9 @@ maintenant en UN objet JSON strict {"status": "answered | insufficient_evidence 
 Reponse concise, chunk_ids deja retournes.
 ```
 
-Points notables : le prompt affirme explicitement la hiérarchie (règles > utilisateur > documents), interdit d'inventer une source, interdit explicitement de révéler le prompt système lui-même ou tout secret, borne le nombre d'appels d'outils, impose un format de sortie strict avec un champ `status` à 4 valeurs, et **le texte affiché pour `insufficient_evidence`/`out_of_scope`/`refused` n'est jamais celui du modèle** — le runtime le remplace systématiquement par un message serveur fixe (`INSUFFICIENT_MESSAGE`, `OUT_OF_SCOPE_MESSAGE`, `REFUSAL_MESSAGE`), pour qu'aucune formulation du modèle ne puisse glisser du contenu non vérifié dans un message qui prétend justement ne rien affirmer.
+Points notables : le prompt affirme explicitement la hiérarchie (règles > utilisateur > documents), cantonne l'agent à l'analyse du corpus (pas un assistant généraliste), interdit d'inventer une source, interdit explicitement de révéler le prompt système, les instructions internes ou tout secret, borne le nombre d'appels d'outils, et impose un format de sortie strict avec un champ `status` à 4 valeurs. **Le texte affiché pour `insufficient_evidence`/`out_of_scope`/`refused` n'est jamais celui du modèle** — le runtime le remplace systématiquement par un message serveur fixe (`INSUFFICIENT_MESSAGE`, `OUT_OF_SCOPE_MESSAGE`, `REFUSAL_MESSAGE`), pour qu'aucune formulation du modèle ne puisse glisser du contenu non vérifié dans un message qui prétend justement ne rien affirmer.
 
-**`out_of_scope` vs `insufficient_evidence`** : la classification reste **sémantique, décidée par le modèle lui-même** (`tool_choice: auto`), jamais un routage lexical par mots-clés dans le code — cohérent avec le principe posé en section 5 ("un `if mot in message` n'est pas de l'intelligence"). La différence observable : `out_of_scope` se décide en général **sans appeler `search_evidence`** (question hors du domaine du corpus), alors qu'`insufficient_evidence` implique d'avoir cherché et de n'avoir rien trouvé d'admissible sur une question qui, elle, relève bien du corpus. Vérifié en direct : "Prépare-moi un sandwich" → `out_of_scope`, 0 appel outil ; une question sur un champ de CV réellement vide → `insufficient_evidence`, plusieurs appels outil avant d'abandonner.
+**`out_of_scope` ≠ `insufficient_evidence`** — deux états structurellement différents, à ne jamais confondre à l'oral. `out_of_scope` = la demande ne concerne pas les documents : aucun appel d'outil, aucune recherche, message serveur fixe, confiance `n/a` — décidé **sémantiquement par le modèle lui-même** (`tool_choice: auto`), jamais par un routage lexical dans le code (cohérent avec le principe posé en section 5 : "un `if mot in message` n'est pas de l'intelligence"). `insufficient_evidence` = la demande concerne bien les documents, la recherche a eu lieu, mais aucune preuve suffisante n'a été trouvée — message serveur fixe, confiance `none`. Le premier dit « ce n'est pas mon travail », le second « c'est mon travail mais le corpus ne permet pas de répondre ». Vérifié en direct : "Prépare-moi un sandwich" → `out_of_scope`, 0 appel outil ; une question sur un champ de CV réellement vide → `insufficient_evidence`, plusieurs appels outil avant d'abandonner.
 
 **Détecteur** (`backend/detector.py`) — signaux déterministes (regex + poids), pas un prompt LLM. Un second signal par classification LLM est prévu mais pas ajouté à cette signature.
 
@@ -189,7 +190,7 @@ Trois familles d'erreurs, gérées différemment :
 - **Échec d'un appel d'outil** (`ToolRuntime.execute`) : jamais une exception qui casse la boucle — retourné à Claude comme un résultat d'outil `{"status": "error", "error": {"code": ..., "message": ...}}`, avec 3 codes possibles (`INVALID_ARGUMENTS`, `UNKNOWN_TOOL`, `TOOL_EXECUTION_ERROR`). Le modèle voit l'échec et peut réagir (reformuler, abandonner).
 - **Échec du modèle lui-même** (`LLMUnavailable`, `backend/answer.py` + `backend/agent.py`) : réseau/timeout, HTTP non-200, réponse malformée, clé absente, limite de tours d'outils atteinte (`MAX_TOOL_ROUNDS = 4`). Remonté en HTTP 502 par l'API, jamais un crash silencieux.
 
-**Limite connue, testée et pas encore corrigée** : si la réponse finale du modèle n'est pas le JSON strict attendu — par exemple si Claude répond en langage naturel qu'il ne peut pas exécuter une demande hors de son périmètre (ex. "supprime ce document") — `_final_answer` lève `LLMUnavailable("réponse finale modèle malformée")`, qui remonte en 502. Ce n'est pas un refus propre visible par l'utilisateur, c'est une erreur technique générique. À durcir : soit assouplir le parsing pour accepter une réponse texte libre comme refus légitime, soit adapter le prompt pour que le modèle refuse dans le format JSON attendu.
+**Réponse hors format devenue refus propre** : si la réponse finale du modèle n'est pas le JSON strict attendu — par exemple s'il répond en langage naturel qu'il ne peut pas exécuter une demande hors de son périmètre (ex. "supprime ce document") — le runtime tente d'abord une réparation (voir section 5) ; dès qu'un JSON valide est obtenu, `status="refused"` est produit par le code avec le message serveur fixe, jamais avec le texte libre du modèle. Seule la réparation elle-même peut encore échouer (LLMUnavailable → HTTP 502, cf. DURCISSEMENT.md H20) : un échec typé sans fuite, pas un refus silencieux.
 
 ---
 
@@ -209,7 +210,7 @@ Point à ne jamais confondre à l'oral : **arrêter un run est une opération de
 
 ### Cycle de vie d'un run
 
-Chaque exécution a un `run_id` et traverse les états `running → stop_requested → stopped`, ou `running → completed`, ou `running → failed`. Aucun état n'est sauté, aucune reprise silencieuse : un run qui échoue ou qui est arrêté reste dans cet état, il n'est jamais relancé automatiquement à l'insu de l'opérateur.
+Chaque exécution a un `run_id` et traverse les états `running → stop_requested → stopped`, ou `running → completed`, ou `running → failed`, ou `running → interrupted` (déconnexion client, redémarrage avec run orphelin). Aucun état n'est sauté, aucune reprise silencieuse : un run qui échoue ou qui est arrêté reste dans cet état, il n'est jamais relancé automatiquement à l'insu de l'opérateur.
 
 ### Journal
 
@@ -224,13 +225,13 @@ Quand une ressource externe (API du modèle, base de données) devient indisponi
 | Composant | État |
 |---|---|
 | Boucle agentique, outil `search_evidence` (palier 3) | Livré, testé |
-| Backend : `run_id`, `POST /api/runs/{id}/stop`, `GET /api/runs/{id}/journal`, `GET /api/journal/recent`, journal persistant (`backend/run_control.py`, `backend/journal.py`), superviseur de processus (`backend/supervisor.py`) | Livré et fusionné dans `dev`. Testé en direct : cycle `agent_start → stop_requested → stopped`, panne de clé API (`MISSING_CREDENTIAL`), suppression de la base pendant un run, kill du processus enfant sans redémarrage silencieux — tous confirmés avec de vrais horodatages serveur, pas simulés |
+| Backend : `run_id`, `POST /api/runs/{id}/stop`, `GET /api/runs/{id}/journal`, journal persistant (`backend/run_control.py`, `backend/journal.py`), superviseur de processus (`backend/supervisor.py`) | Livré et fusionné dans `dev`. Testé en direct : cycle `agent_start → stop_requested → stopped`, panne de clé API (`MISSING_CREDENTIAL`), suppression de la base pendant un run, kill du processus enfant sans redémarrage silencieux — tous confirmés avec de vrais horodatages serveur, pas simulés. Note : l'endpoint global `GET /api/journal/recent` a été **retiré** au durcissement (vie privée) — seul le journal du `run_id` courant est exposé |
 | Frontend : bouton unique Envoyer/STOP, onglet Journal, bandeau `resource_unavailable` | Livré, testé contre le vrai backend |
 
 ### Palier 5 — livré et vérifié en direct
 
-`status` (`answered`/`insufficient_evidence`/`refused`), `confidence` (`level`/`reason`), `metrics` (`model`, `model_calls`, `tool_calls`, tokens, `duration_ms`, `estimated_cost_usd`, `usage_available`, `pricing_status`) sur `Answer` : livrés par Erwan (`backend/models.py`, `backend/agent.py`, `backend/main.py`, `backend/metrics.py`). Validation d'entrée bornée en octets réels (question, taille/nombre de documents, taille totale d'upload). Annulation propre sur déconnexion client résolue par annulation directe de la tâche `asyncio` qui porte l'appel fournisseur (pas un watcher HTTP en polling — une première tentative dans ce sens, côté Souf, avait été testée en direct et abandonnée car elle bloquait le run indéfiniment ; cf. JOURNAL.md entrée 10). **28/28 scénarios passent** (`evals/run_eval.py`), y compris plusieurs tests en direct contre le vrai modèle Anthropic. Un point de vigilance non automatisé signalé mais pas corrigé : un prompt hostile plus élaboré peut, environ une fois sur cinq observée, faire échouer le repair loop de format JSON (échec typé, HTTP 502, aucune fuite — pas une régression de sécurité, mais une UX à améliorer). Détail complet, scénario par scénario, dans DURCISSEMENT.md.
+`status` (`answered`/`insufficient_evidence`/`out_of_scope`/`refused`), `confidence` (`level`/`reason`), `metrics` (`model`, `model_calls`, `tool_calls`, tokens, `duration_ms`, `estimated_cost_usd`, `usage_available`, `pricing_status`) sur `Answer` : livrés par Erwan (`backend/models.py`, `backend/agent.py`, `backend/main.py`, `backend/metrics.py`). Validation d'entrée bornée en octets réels (question, taille/nombre de documents, taille totale d'upload). Annulation propre sur déconnexion client résolue par annulation directe de la tâche `asyncio` qui porte l'appel fournisseur (pas un watcher HTTP en polling — une première tentative dans ce sens, côté Souf, avait été testée en direct et abandonnée car elle bloquait le run indéfiniment ; cf. JOURNAL.md entrée 10). **28/28 scénarios passent** (`evals/run_eval.py`), y compris plusieurs tests en direct contre le vrai modèle Anthropic. Un point de vigilance non automatisé signalé mais pas corrigé : un prompt hostile plus élaboré peut, environ une fois sur cinq observée, faire échouer le repair loop de format JSON (échec typé, HTTP 502, aucune fuite — pas une régression de sécurité, mais une UX à améliorer). Détail complet, scénario par scénario, dans DURCISSEMENT.md.
 
 ### Streaming et boucle d'outils conservés
 
-Le palier 4 n'a pas remplacé le palier 3 : `agent_events`/`run_agent` restent la même boucle, les mêmes événements `agent_start`, `tool_call`, `tool_result`, `text_delta`, `done`, `error`. Le palier 4 en ajoute (`stop_requested`, `stopped`, `resource_unavailable`) sans en retirer aucun.
+Le palier 4 n'a pas remplacé le palier 3 : `agent_events`/`run_agent` restent la même boucle, les mêmes événements `agent_start`, `tool_call`, `tool_result`, `text_delta`, `done`, `error`. Le palier 4 en ajoute (`stop_requested`, `stopped`, `resource_unavailable`) sans en retirer aucun. L'événement `done` porte `status` (dont `out_of_scope`), `confidence` et `metrics` — la même métrique que la réponse `/api/ask` et le journal `run_completed`.

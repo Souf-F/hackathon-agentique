@@ -31,9 +31,9 @@ Une ligne, pas un pitch. Le reste de la démo le prouve, ne le raconte pas.
 
 ### 0:25–1:15 — Corpus et rappel de l'injection
 
-Charger (ou montrer déjà chargé) le corpus de démo. Rappeler en une phrase : un des CV du corpus contient une tentative d'injection réelle — pas un exemple inventé pour l'occasion, un vrai texte piégé qui sera montré dans la minute 2:20.
+Charger (ou montrer déjà chargé) le corpus de démo. Rappeler en une phrase : un des CV du corpus contient une tentative d'injection réelle — pas un exemple inventé pour l'occasion, un vrai texte piégé qui sera montré dans la minute 2:15.
 
-### 1:15–2:20 — Question métier
+### 1:15–2:15 — Question métier (réponse sourcée)
 
 > "Quel candidat a fait une migration de MySQL vers PostgreSQL chez Nordis Technologies ?"
 
@@ -43,9 +43,9 @@ Montrer, dans l'ordre :
 3. La citation (chunk de `cv_adam.txt`)
 4. `status="answered"`
 
-**Pourquoi cette question précise et pas une autre au hasard** : testé en direct plusieurs fois sur le corpus de démo (7 CV, chunking par passage) — l'attribution "quel candidat" échoue parfois même quand le fait recherché est bien trouvé, parce que les en-têtes de CV ("CV — Prénom / Poste recherché : ...") se ressemblent trop entre eux pour qu'une recherche générique de type "nom du candidat" retrouve fiablement le bon en-tête en 4 appels d'outil maximum. Une question qui nomme l'entreprise et la techno précise (comme celle-ci) est nettement plus fiable qu'une question vague ("qui a fait une migration de monolithe ?"), mais pas garantie à 100 %. **Si la réponse sort en `insufficient_evidence` au lieu d'une réponse sourcée, reposer exactement la même question une fois** — c'est un aléa de stratégie de recherche du modèle, pas un bug reproductible à chaque fois, documenté en toute transparence plutôt que caché.
+**Pourquoi cette question précise et pas une autre au hasard** : testé en direct plusieurs fois sur le corpus de démo (7 CV, chunking par passage) — l'attribution "quel candidat" échoue parfois même quand le fait recherché est bien trouvé, parce que les en-têtes de CV ("CV — Prénom / Poste recherché : ...") se ressemblent trop entre eux pour qu'une recherche générique de type "nom du candidat" retrouve fiablement le bon en-tête en 4 appels d'outil maximum. Une question qui nomme l'entreprise et la techno précise (comme celle-ci) est nettement plus fiable qu'une question vague ("qui a fait une migration de monolithe ?"), mais pas garantie à 100 %. **Si la réponse sort en `insufficient_evidence` au lieu d'une réponse sourcée, reposer exactement la même question une fois** — c'est un aléa de stratégie de recherche du modèle, pas un bug reproductible à chaque fois, documenté en toute transparence plutôt que caché (cf. README.md, Limites connues).
 
-### 2:20–3:05 — Document suspect
+### 2:15–2:55 — Document suspect
 
 Ouvrir `cv_nico.txt` dans l'interface. Montrer le passage quarantiné, visible humainement dans la preview mais jamais dans le contexte envoyé au modèle :
 
@@ -53,27 +53,37 @@ Ouvrir `cv_nico.txt` dans l'interface. Montrer le passage quarantiné, visible h
 
 Catégorie détectée : `authority_override`, confiance 0.95, action `quarantined`. Rappeler : `WHERE quarantined = 0` — l'exclusion est un filtre en couche de données, jamais une consigne au modèle qu'il pourrait suivre ou ignorer.
 
-### 3:05–3:40 — Hors périmètre
+### 2:55–3:35 — Hors périmètre (`out_of_scope`)
 
 > "Prépare-moi un sandwich."
 
 Montrer, dans l'ordre :
 - `status="out_of_scope"`
-- **0 appel d'outil** (vérifié en direct : le modèle n'essaie même pas de chercher dans le corpus)
-- *"Je ne suis pas habilité à répondre aux questions hors du périmètre des documents analysés."*
+- **0 appel d'outil** (vérifié en direct : le modèle n'essaie même pas de chercher dans le corpus — aucun `tool_call` dans le stream ni le journal)
+- *"Je ne suis pas habilité à répondre aux questions hors du périmètre des documents analysés."* (message serveur fixe, jamais le texte du modèle)
+- Confiance `n/a`, état neutre affiché — pas une bannière rouge
 
-Préciser en une phrase la distinction avec une abstention classique : lié au corpus mais preuve absente → `insufficient_evidence` ; sans rapport avec le corpus → `out_of_scope`, décidé par le modèle lui-même, pas par une liste de mots-clés dans le code.
+### 3:35–3:55 — Contraste : question corpus sans preuve (`insufficient_evidence`)
 
-### 3:40–4:25 — Coût et traçabilité
+> "Qui possède COBOL ?"
 
-Sur la réponse du test métier (1:15–2:20), montrer dans l'Inspector, onglet Détails :
+La question porte bien sur les candidats — le modèle **cherche** avant de renoncer (vérifié en direct, 3/3 : 1 à 2 `tool_call`, puis abstention). Montrer en une phrase la distinction avec le test précédent :
+
+| | `out_of_scope` (sandwich) | `insufficient_evidence` (COBOL) |
+|---|---|---|
+| Appel d'outil | 0 | ≥ 1 |
+| Ce que ça dit | "ce n'est pas mon travail" | "c'est mon travail, mais le corpus ne permet pas de répondre" |
+
+### 3:55–4:30 — Coût et traçabilité
+
+Sur la réponse du test métier (1:15–2:15), montrer dans l'Inspector, onglet Détails :
 - confiance (`medium`/`high` selon le nombre de passages/documents cités)
 - tokens (input/output)
 - coût réel (jamais un `$0` si le coût réel est non nul)
 - durée
 - la trace d'outils complète (`tool_trace`)
 
-### 4:25–4:50 — Dette assumée
+### 4:30–4:50 — Dette assumée
 
 Ouvrir `DURCISSEMENT.md` et `JOURNAL.md` ("Dette technique assumée"). Une phrase : un prompt hostile élaboré fait parfois (~1 fois sur 5, mesuré en direct) échouer le format JSON de sortie même après réparation — erreur HTTP 502 propre, jamais une fuite ni une invention. Assumé par écrit, pas corrigé en dernière minute avant le gel.
 
@@ -95,7 +105,7 @@ Chronomètre réel, mêmes conditions à chaque fois (machine, navigateur, rése
 
 ## Si quelque chose ne répond pas
 
-- **Question métier → `insufficient_evidence` au lieu d'une réponse sourcée** : reposer la même question une fois (cf. section 1:15–2:20) — comportement non déterministe connu, pas un bug à corriger en urgence pendant la démo.
+- **Question métier → `insufficient_evidence` au lieu d'une réponse sourcée** : reposer la même question une fois (cf. section 1:15–2:15) — comportement non déterministe connu, pas un bug à corriger en urgence pendant la démo.
 - **Prompt hostile → HTTP 502** : n'arrive que sur un prompt hostile élaboré (pas dans ce script), documenté DURCISSEMENT.md H20 — si ça arrive quand même, le présenter comme le comportement attendu d'un échec typé, pas comme une surprise.
 - **Réponse en `"mode": "extractive"` au lieu de `"llm"`** : signale une clé API absente ou mal chargée — vrai bug de configuration à corriger avant de continuer, pas un comportement attendu.
 - **Render (secours) ne charge pas** : réessayer une fois (réveil du service, ~30s mesurés), sinon basculer immédiatement sur le local pré-lancé.
