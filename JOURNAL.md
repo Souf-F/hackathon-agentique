@@ -205,3 +205,15 @@ Minimum requis : 5 entrées.
 **Ce qu'un dernier test en direct a trouvé, une fois la version d'Erwan adoptée** : en testant le scénario hostile (H09/H16) plusieurs fois de suite contre le vrai modèle avec une formulation plus élaborée (refus + tentative d'extraction d'une fausse affirmation dans la même requête), 4 tentatives sur 5 ont produit un `status="refused"` propre — la 5e a fait échouer le format JSON de sortie du modèle, et la tentative de réparation automatique (un seul essai) n'a pas suffi, résultant en une erreur HTTP 502 propre plutôt qu'un refus explicite. Aucune fuite, aucune invention, aucun crash non contrôlé dans aucun des deux cas — mais un jury qui insiste sur ce type de prompt à l'oral a une chance réelle de tomber sur ce cas. Documenté dans DURCISSEMENT.md (H20) et MENACES.md (T25), signalé à Erwan plutôt que corrigé directement dans son fichier sans lui, puisque `backend/agent.py` reste sous sa responsabilité et qu'il doit pouvoir expliquer tout changement à l'oral.
 
 **Ce qu'on en retient** : travailler en parallèle sur le même contrat sans se synchroniser en amont a un coût réel (deux implémentations à comparer, une à jeter), mais avoir les deux en main au moment de fusionner a permis de choisir objectivement la meilleure plutôt que de deviner laquelle l'était. La règle qui aurait évité ce doublon : vérifier `git fetch origin` + l'état de la branche de l'autre avant de commencer un gros morceau, pas seulement avant de pousser.
+
+---
+
+## Entrée 12 — Palier 6 : gel livraison, ce qui rend périmées trois affirmations ci-dessus
+
+**Date** : 9 septembre 2026 · **Participants** : Erwan (revue docs, gel)
+
+**Objet** : cette entrée ne corrige pas le passé, elle le supersède explicitement. Trois affirmations d'entrées précédentes ne décrivent plus le code gelé :
+
+1. **Entrée 7, « pas encore corrigé » (refus en 502)** : corrigé depuis. Une demande hostile/interdite produit `status="refused"` avec message serveur fixe (AGENTS.md section 7 réécrite en conséquence). Reste uniquement le cas H20 : si la réparation JSON elle-même échoue, échec typé 502 sans fuite.
+2. **Entrée 10, bornes et 3 statuts** : la version temporaire de Souf est remplacée (entrée 11). Bornes finales côté API : question 1..2000 caractères, `source_name` 1..255, 20 documents max, 1 Mio/document, 5 Mio/upload — et le contrat final compte **quatre** statuts, `out_of_scope` en plus (`answered`, `insufficient_evidence`, `out_of_scope`, `refused`). Une demande hors documents (ex. « As-tu joué à Mario ? ») ne déclenche aucun appel d'outil et reçoit un message serveur fixe — à distinguer d'une question corpus sans preuve (`insufficient_evidence`, recherche effectuée).
+3. **Dette assumée au gel** (voir DURCISSEMENT.md, section « Dette technique assumée ») : repair JSON non fiable ~1/5 sous prompt hostile élaboré (D1) ; manipulation métier non détectée, 6 xfails conservés (D2). Ni l'un ni l'autre ne fuite ni n'invente ; ni l'un ni l'autre n'est corrigé avant le gel, pour ne pas affaiblir une garantie existante.
