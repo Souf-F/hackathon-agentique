@@ -114,7 +114,7 @@ class Answer:
     text: str
     citations: list[SourceRef]
     mode: str  # "llm" | "extractive"
-    status: str = "answered"  # "answered" | "insufficient_evidence" | "refused"
+    status: str = "answered"  # "answered" | "insufficient_evidence" | "out_of_scope" | "refused"
     confidence: dict = field(default_factory=lambda: {"level": "n/a", "reason": "non évalué"})
 
 
@@ -123,10 +123,11 @@ def grounding_confidence(status: str, n_refs: int, n_docs: int, had_tool_error: 
 
     Ce score représente le niveau de preuve validée structurellement, pas la
     probabilité que le monde réel soit vrai. Conservateur par construction :
-    aucune confiance auto-déclarée par le modèle n'est utilisée.
+    aucune confiance auto-déclarée par le modèle n'est utilisée. Pour
+    out_of_scope et refused, Oracle n'évalue aucune affirmation documentaire.
     """
-    if status == "refused":
-        return {"level": "n/a", "reason": "demande refusée, aucune affirmation produite"}
+    if status in ("refused", "out_of_scope"):
+        return {"level": "n/a", "reason": "aucune affirmation documentaire évaluée"}
     if status == "insufficient_evidence" or n_refs <= 0:
         return {"level": "none", "reason": "aucune preuve admissible validée"}
     passage = "1 passage admissible validé" if n_refs == 1 else f"{n_refs} passages admissibles validés"
