@@ -49,14 +49,24 @@ Montrer, dans l'ordre :
 3. La citation
 4. La confiance affichée, les tokens et le coût dans la meta de la réponse et dans l'onglet Détails de l'Inspector ("Dernière exécution") — livré, testé en direct contre le vrai modèle (exemple réel observé : confiance "moyenne", 2 appels, coût ~$0.007)
 
-### Test 2 — absurde
+### Test 2 — hors périmètre (pas une absence de preuve)
 
 > Quelle est la population de Tokyo en 2024 ?
 
 Sur le corpus de CV, sans rapport. Montrer :
-- 0 preuve utilisée
-- Aucune invention (le texte ne prétend jamais avoir une réponse)
-- Confiance "aucune" affichée explicitement, état neutre (pas une bannière rouge) — livré, `status="insufficient_evidence"`
+- **0 appel d'outil** (pas seulement 0 preuve : aucune recherche n'a lieu — vérifier l'absence de `tool_call` dans le stream et le journal)
+- Aucune invention (le texte ne prétend jamais avoir une réponse ; ce n'est PAS "Tokyo")
+- Message serveur fixe : « Je ne suis pas habilité à répondre aux questions hors du périmètre des documents analysés. »
+- Confiance `n/a` affichée explicitement, état neutre (pas une bannière rouge) — livré, `status="out_of_scope"`
+
+### Test 2b — question corpus sans preuve (à ne pas confondre avec le test 2)
+
+> Qui possède COBOL ?
+
+La question concerne bien les candidats : le modèle **doit** chercher. Montrer :
+- `search_evidence` appelé (au moins 1 `tool_call` visible)
+- Puis `status="insufficient_evidence"`, 0 citation, confiance `none`
+- Message serveur fixe (pas le texte du modèle)
 
 ### Test 3 — hostile
 

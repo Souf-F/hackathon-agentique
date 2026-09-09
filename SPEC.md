@@ -106,7 +106,7 @@ Détection optimisée pour le français et l'anglais.
 
 Les seuls outils exposés à la boucle LLM sont en lecture seule. Le modèle ne dispose d'aucun moyen d'écrire, de quarantiner, de déquarantiner ou de journaliser.
 
-**État réel au palier 3** : seul `search_evidence` est effectivement enregistré et appelable par le modèle (`backend/tool_runtime.py`). `inspect_document` reste ci-dessous comme outil prévu dans le cadrage initial, mais n'a pas encore été câblé dans le registre de l'agent — voir OUTILS.md section 1.
+**État réel au palier 3, confirmé aux paliers suivants** : seul `search_evidence` est effectivement enregistré et appelable par le modèle (`backend/tool_runtime.py`). `inspect_document` reste ci-dessous comme outil prévu dans le cadrage initial, mais n'est pas câblé dans le registre de l'agent — par décision, pas par oubli : l'agrégation serveur suffit et chaque outil exposé élargit la surface — voir OUTILS.md section 1.
 
 ### `search_evidence`
 
@@ -231,7 +231,12 @@ class SourceRef:
 class Answer:
     text: str
     citations: list[SourceRef]
+    mode: str  # "llm" | "extractive"
+    status: str = "answered"  # "answered" | "insufficient_evidence" | "out_of_scope" | "refused" (ajouté après cadrage, voir AGENTS.md section 6)
+    confidence: dict = ...  # {"level": ..., "reason": ...}, calculé par le code, jamais déclaré par le modèle
 ```
+
+> **Note de gel (palier 6)** : une demande hors du périmètre documentaire (ex. « As-tu joué à Mario ? ») ne déclenche aucun appel d'outil et reçoit `status="out_of_scope"` avec un message serveur fixe — à distinguer d'une question corpus sans preuve suffisante (`status="insufficient_evidence"`, recherche effectuée). Voir AGENTS.md section 6 et DURCISSEMENT.md H14/H21.
 
 ---
 
