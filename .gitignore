@@ -1,8 +1,48 @@
+# Secrets / environnement
 .env
+.env.*
+!.env.example
+secrets/
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
+
+# Node
 node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# IDE / OS
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# Données locales et runtime
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+*.jsonl
+data/index/
+data/cache/
+uploads/
+tmp/
+temp/
+logs/
 *.log

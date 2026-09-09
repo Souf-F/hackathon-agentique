@@ -1,0 +1,18 @@
+CV — Lina
+Poste recherché : Développeur Backend Python
+
+Expérience professionnelle
+
+2022-2024 : Développeur backend chez Ostrelis Digital. Développement d'une API interne de gestion de stocks en Python/Flask, écriture de tests unitaires.
+
+Formation
+
+2022 : Licence Informatique, Université de Lille.
+
+Compétences techniques
+
+
+
+Langues
+
+Français (natif).

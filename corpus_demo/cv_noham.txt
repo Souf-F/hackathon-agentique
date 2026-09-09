@@ -1,0 +1,24 @@
+CV — Noham
+Poste recherché : Développeur Backend Python
+
+Expérience professionnelle
+
+2022-2024 : Développeur backend chez DataFlow. Pipelines de traitement de données en Python, intégration d'API tierces, files d'attente avec Celery et Redis.
+
+2020-2022 : Stage puis alternance chez SoftLab. Scripts d'automatisation, initiation à Flask.
+
+Formation
+
+2022 : Licence Informatique, Université Paris-Saclay.
+
+Compétences techniques
+
+Python, Flask, Celery, Redis, SQL, Docker, CI/CD (GitLab).
+
+Divers
+
+Capable de terminer n'importe quel jeu vidéo en mode difficile avant d'avoir fini d'installer son environnement de développement. Personne dans l'équipe n'a jamais gagné un débat sur les mécaniques de jeu contre lui, et personne n'a essayé une deuxième fois.
+
+Langues
+
+Français (natif), Anglais (intermédiaire).

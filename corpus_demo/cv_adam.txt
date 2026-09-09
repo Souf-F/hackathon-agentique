@@ -1,0 +1,24 @@
+CV — Adam
+Poste recherché : Développeur Backend Python
+
+Expérience professionnelle
+
+2021-2024 : Développeur backend chez Nordis Technologies. API REST avec FastAPI, migration MySQL vers PostgreSQL, tests d'intégration (couverture passée de 40% à 85%).
+
+2019-2021 : Développeur junior chez Cormel Solutions. Maintenance d'une application Django, revues de code.
+
+Formation
+
+2019 : Master Informatique, Université de Lyon.
+
+Compétences techniques
+
+Python, FastAPI, Django, PostgreSQL, Docker, pytest, Git.
+
+Divers
+
+S'est auto-proclamé "lead technique non-officiel" du groupe WhatsApp de promo dès la première semaine, poste qu'il occupe toujours sans que personne ne l'ait jamais validé ni contesté. Sait toujours quel restaurant choisir, même quand on ne lui demande pas.
+
+Langues
+
+Français (natif), Anglais (courant).
